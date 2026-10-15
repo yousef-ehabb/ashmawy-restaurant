@@ -6,7 +6,7 @@ export interface OrderDetails {
   phone: string;
   orderType: "delivery" | "pickup";
   address: string;
-  branch?: string;
+  branch?: string | undefined;
   notes?: string;
 }
 
