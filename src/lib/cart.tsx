@@ -5,9 +5,9 @@ export interface CartLine {
   key: string;
   productId: string;
   nameAr: string;
-  nameEn?: string;
+  nameEn?: string | undefined;
   image: string;
-  size?: Size;
+  size?: Size | undefined;
   extras: Extra[];
   unitPrice: number;
   qty: number;
@@ -19,7 +19,7 @@ interface CartCtx {
   subtotal: number;
   open: boolean;
   setOpen: (v: boolean) => void;
-  add: (p: Product, opts?: { size?: Size; extras?: Extra[]; qty?: number }) => void;
+  add: (p: Product, opts?: { size?: Size | undefined; extras?: Extra[]; qty?: number }) => void;
   setQty: (key: string, qty: number) => void;
   remove: (key: string) => void;
   clear: () => void;
@@ -58,7 +58,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const i = prev.findIndex((l) => l.key === key);
         if (i >= 0) {
           const next = [...prev];
-          next[i] = { ...next[i], qty: next[i].qty + qty };
+          next[i] = { ...next[i]!, qty: next[i]!.qty + qty };
           return next;
         }
         return [...prev, { key, productId: p.id, nameAr: p.nameAr, nameEn: p.nameEn, image: p.image, size, extras, unitPrice, qty }];

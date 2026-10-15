@@ -33,12 +33,12 @@ export interface Product {
   id: string;
   category: CategoryId;
   nameAr: string;
-  nameEn?: string;
-  description?: string;
+  nameEn?: string | undefined;
+  description?: string | undefined;
   price: number;
-  sizes?: Size[];
+  sizes?: Size[] | undefined;
   image: string;
-  tags?: ("spicy" | "new")[];
+  tags?: ("spicy" | "new")[] | undefined;
   customizable?: boolean;
 }
 
