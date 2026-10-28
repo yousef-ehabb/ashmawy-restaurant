@@ -41,4 +41,3 @@ dist-ssr
 serviceAccountKey.json
 service-account*.json
 *.zip
-public/arfonts*

@@ -4,10 +4,172 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-hairline.otf") format("opentype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-thin.otf") format("opentype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-extralight.otf") format("opentype");
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-bold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-heavy.otf") format("opentype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping AR LT";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-black.otf") format("opentype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Also register under family name "Ping" for maximum compatibility */
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-hairline.otf") format("opentype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-thin.otf") format("opentype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-extralight.otf") format("opentype");
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-bold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-heavy.otf") format("opentype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Ping";
+  src: url("/arfonts-ping-ar-lt_all/ping-ar-lt-black.otf") format("opentype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
-  --font-sans: "Cairo", "Baloo Bhaijaan 2", system-ui, sans-serif;
-  --font-display: "Lalezar", "Cairo", sans-serif;
-  --font-latin: "Baloo Bhaijaan 2", "Cairo", sans-serif;
+  --font-sans: "Ping AR LT", "Ping", sans-serif;
+  --font-display: "Ping AR LT", "Ping", sans-serif;
+  --font-latin: "Ping AR LT", "Ping", sans-serif;
+  --font-mono: "Ping AR LT", "Ping", monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -71,17 +233,30 @@
 
 @layer base {
   * { border-color: var(--color-border); }
-  html { scroll-behavior: smooth; }
+  html {
+    scroll-behavior: smooth;
+    font-family: var(--font-sans);
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  button, input, optgroup, select, textarea {
+    font-family: inherit;
   }
   section[id] { scroll-margin-top: 5rem; }
 }
 
-@utility font-display { font-family: var(--font-display); font-weight: 400; letter-spacing: 0; }
+@utility font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+}
+:where(.font-display) {
+  font-weight: 700;
+}
 @utility font-latin { font-family: var(--font-latin); }
 @utility no-scrollbar {
   scrollbar-width: none;
