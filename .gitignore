@@ -40,3 +40,4 @@ dist-ssr
 *.local
 serviceAccountKey.json
 service-account*.json
+*.zip
