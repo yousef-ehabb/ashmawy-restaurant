@@ -5,9 +5,11 @@ import heroFood from "@/assets/hero-food.jpg";
 import mealImg from "@/assets/meal-chicken.jpg";
 import crispyImg from "@/assets/crepe-crispy.jpg";
 import logo from "@/assets/ashmawy-logo.png.asset.json";
-import { categories, products, type CategoryId } from "@/data/menu";
 import { restaurant } from "@/config/restaurant";
 import { ProductCard } from "@/components/site/ProductCard";
+import { useProducts } from "@/hooks/useProducts";
+import { useCategories } from "@/hooks/useCategories";
+import { useRestaurantSettings } from "@/hooks/useRestaurantSettings";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -67,8 +69,14 @@ function Hero() {
 }
 
 function MenuSection() {
-  const [cat, setCat] = useState<CategoryId | "all">("all");
+  const { categories, isLoading: isCatsLoading, isError: isCatsError, refetch: refetchCats } = useCategories();
+  const { products, isLoading: isProdsLoading, isError: isProdsError, refetch: refetchProds } = useProducts();
+
+  const [cat, setCat] = useState<string>("all");
   const [q, setQ] = useState("");
+
+  const isLoading = isCatsLoading || isProdsLoading;
+  const isError = isCatsError || isProdsError;
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -77,11 +85,13 @@ function MenuSection() {
         (cat === "all" || p.category === cat) &&
         (!term || p.nameAr.includes(term) || p.nameEn?.toLowerCase().includes(term)),
     );
-  }, [cat, q]);
+  }, [products, cat, q]);
 
-  const grouped = categories
-    .map((c) => ({ c, items: filtered.filter((p) => p.category === c.id) }))
-    .filter((g) => g.items.length);
+  const grouped = useMemo(() => {
+    return categories
+      .map((c) => ({ c, items: filtered.filter((p) => p.category === c.id) }))
+      .filter((g) => g.items.length > 0);
+  }, [categories, filtered]);
 
   return (
     <section id="menu" className="mx-auto max-w-6xl px-4 pt-14">
@@ -93,24 +103,97 @@ function MenuSection() {
         <label className="relative w-full md:w-80">
           <span className="sr-only">ابحث في المنيو</span>
           <Search className="absolute top-1/2 right-4 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="دوّر على أكلتك..." className="w-full rounded-full border border-input bg-card py-3 pr-11 pl-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="دوّر على أكلتك..."
+            className="w-full rounded-full border border-input bg-card py-3 pr-11 pl-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
+          />
         </label>
       </div>
 
       <div className="sticky top-[65px] z-30 -mx-4 mt-5 bg-background/95 px-4 py-3 backdrop-blur">
         <div className="no-scrollbar flex gap-2 overflow-x-auto md:flex-wrap" role="tablist" aria-label="أقسام المنيو">
-          {[{ id: "all" as const, nameAr: "الكل" }, ...categories].map((c) => (
-            <button key={c.id} role="tab" aria-selected={cat === c.id} onClick={() => setCat(c.id)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${cat === c.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary hover:text-primary"}`}>
+          <button
+            role="tab"
+            aria-selected={cat === "all"}
+            onClick={() => setCat("all")}
+            className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${
+              cat === "all"
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card hover:border-primary hover:text-primary"
+            }`}
+          >
+            الكل
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              role="tab"
+              aria-selected={cat === c.id}
+              onClick={() => setCat(c.id)}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${
+                cat === c.id
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card hover:border-primary hover:text-primary"
+              }`}
+            >
               {c.nameAr}
             </button>
           ))}
         </div>
       </div>
 
-      {grouped.length === 0 ? (
+      {isError ? (
+        <div className="my-12 rounded-3xl border border-destructive/20 bg-card p-8 text-center shadow-card">
+          <p className="text-lg font-bold text-destructive">حصلت مشكلة في تحميل قائمة الطعام</p>
+          <p className="mt-1 text-sm text-muted-foreground">تأكد من الاتصال بالإنترنت وحاول مرة تانية.</p>
+          <button
+            onClick={() => {
+              refetchCats();
+              refetchProds();
+            }}
+            className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-sm font-extrabold text-primary-foreground shadow-pop transition hover:bg-primary-deep"
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      ) : isLoading ? (
+        <div className="mt-8 space-y-8">
+          {[1, 2].map((section) => (
+            <div key={section} className="space-y-4">
+              <div className="flex items-baseline gap-3">
+                <div className="h-7 w-32 animate-pulse rounded-lg bg-muted" />
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+                {[1, 2, 3, 4].map((item) => (
+                  <div key={item} className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-3 shadow-card sm:p-4">
+                    <div className="aspect-square w-full animate-pulse rounded-xl bg-muted" />
+                    <div className="mt-3 h-5 w-3/4 animate-pulse rounded bg-muted" />
+                    <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-muted" />
+                    <div className="mt-4 flex items-center justify-between pt-2">
+                      <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                      <div className="h-8 w-20 animate-pulse rounded-full bg-muted" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : grouped.length === 0 ? (
         <div className="my-12 rounded-3xl border border-dashed border-border p-10 text-center">
           <p className="text-lg font-bold">مفيش نتايج لـ "{q}"</p>
-          <button onClick={() => { setQ(""); setCat("all"); }} className="mt-3 font-bold text-primary underline">امسح البحث</button>
+          <button
+            onClick={() => {
+              setQ("");
+              setCat("all");
+            }}
+            className="mt-3 font-bold text-primary underline"
+          >
+            امسح البحث
+          </button>
         </div>
       ) : (
         grouped.map(({ c, items }) => (
@@ -174,15 +257,38 @@ function About() {
 }
 
 function Contact() {
+  const settings = useRestaurantSettings();
+
+  const branches = useMemo(() => {
+    return restaurant.branches.map((b) => {
+      const live = settings.branches.find((lb) => lb.label === b.label);
+      return {
+        ...b,
+        isOpen: live?.isOpen ?? true,
+        phone: live?.phone || restaurant.phones[0] || "",
+      };
+    });
+  }, [settings.branches]);
+
   return (
     <section id="contact" className="mx-auto max-w-6xl px-4 pt-16">
       <h2 className="font-display text-4xl text-primary sm:text-5xl">تواصل معنا</h2>
       <div className="mt-6 grid gap-4 md:grid-cols-3">
-        {restaurant.branches.map((b) => (
+        {branches.map((b) => (
           <div key={b.label} className="rounded-2xl border border-border bg-card p-5 shadow-card">
-            <MapPin className="h-6 w-6 text-primary" />
+            <div className="flex items-center justify-between">
+              <MapPin className="h-6 w-6 text-primary" />
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${b.isOpen ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-destructive/10 text-destructive"}`}>
+                {b.isOpen ? "مفتوح الآن" : "مغلق حالياً"}
+              </span>
+            </div>
             <h3 className="mt-3 font-extrabold">{b.label}</h3>
             <p className="mt-1 text-sm leading-7 text-muted-foreground">{b.address}</p>
+            {b.phone && (
+              <a href={`tel:${b.phone}`} dir="ltr" className="mt-2 block text-right font-latin text-sm font-bold text-primary hover:underline">
+                {b.phone}
+              </a>
+            )}
           </div>
         ))}
         <div className="rounded-2xl bg-primary p-5 text-primary-foreground shadow-pop">

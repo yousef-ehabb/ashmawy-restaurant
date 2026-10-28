@@ -1,0 +1,185 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getAdminDoc() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Authoritative active status check: requires document existence AND is_active == true
+    function hasActiveAdminDoc() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        getAdminDoc().data.is_active == true;
+    }
+
+    // Global administrators with unrestricted administrative access
+    function isGlobalAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        request.auth.token.role == 'super_admin' ||
+        (request.auth.token.email == 'admin@ashmawy.com' && request.auth.token.email_verified == true) ||
+        (hasActiveAdminDoc() && (getAdminDoc().data.role == 'admin' || getAdminDoc().data.role == 'super_admin'))
+      );
+    }
+
+    function isMatarAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'matar_admin' ||
+        (request.auth.token.email == 'matar@ashmawy.com' && request.auth.token.email_verified == true) ||
+        (hasActiveAdminDoc() && (getAdminDoc().data.role == 'matar_admin' || getAdminDoc().data.scope == 'فرع المطار'))
+      );
+    }
+
+    function isMahattaAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'mahatta_admin' ||
+        (request.auth.token.email == 'mahatta@ashmawy.com' && request.auth.token.email_verified == true) ||
+        (hasActiveAdminDoc() && (getAdminDoc().data.role == 'mahatta_admin' || getAdminDoc().data.scope == 'فرع المحطة'))
+      );
+    }
+
+    function getAdminBranchScope() {
+      return (request.auth.token.role == 'matar_admin' || (request.auth.token.email == 'matar@ashmawy.com' && request.auth.token.email_verified == true)) ? 'فرع المطار' :
+             (request.auth.token.role == 'mahatta_admin' || (request.auth.token.email == 'mahatta@ashmawy.com' && request.auth.token.email_verified == true)) ? 'فرع المحطة' :
+             hasActiveAdminDoc() ? getAdminDoc().data.scope : '';
+    }
+
+    // Validates whether the authenticated staff member has access to a specific branch
+    function canAccessBranch(branchName) {
+      return isGlobalAdmin() || (
+        (hasActiveAdminDoc() && (getAdminBranchScope() == branchName || getAdminBranchScope() == 'all')) ||
+        (isMatarAdmin() && branchName == 'فرع المطار') ||
+        (isMahattaAdmin() && branchName == 'فرع المحطة')
+      );
+    }
+
+    function isStaffMember() {
+      return isAuthenticated() && (
+        isGlobalAdmin() ||
+        isMatarAdmin() ||
+        isMahattaAdmin() ||
+        hasActiveAdminDoc() ||
+        request.auth.token.role == 'kitchen' ||
+        request.auth.token.role == 'staff'
+      );
+    }
+
+    // Admins Collection - strictly restricted to Global Administrators
+    // Individual admins can read their own document
+    match /admins/{adminId} {
+      allow read: if isGlobalAdmin() || (isAuthenticated() && request.auth.uid == adminId);
+      allow write: if isGlobalAdmin();
+    }
+
+    // User Profiles - users can read/write their own profile; Global Admins can inspect
+    match /user_profiles/{userId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || isGlobalAdmin()
+      );
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // Public Menu Collections (Categories, Option Groups, Options)
+    // Read is public; write is strictly admin-only. Customers can NEVER alter menu items.
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin();
+    }
+
+    match /option_groups/{groupId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin() || isStaffMember();
+    }
+
+    match /options/{optionId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin() || isStaffMember();
+    }
+
+    // Products - Public read; global admin write; branch admin can only update branch_availability
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin() || (
+        hasActiveAdminDoc() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['branch_availability', 'updated_at'])
+      );
+    }
+
+    // Restaurant Global Settings & Branches
+    // Read is public; write is strictly admin-only. Customers can NEVER change settings.
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin() || (
+        (hasActiveAdminDoc() || isMatarAdmin() || isMahattaAdmin()) &&
+        settingId == 'global' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['branches', 'updated_at'])
+      );
+    }
+
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin();
+    }
+
+    // Business Rules
+    match /business_rules/{ruleId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin();
+    }
+
+    // Orders Collection
+    // - Creation: DIRECT CLIENT CREATION IS BLOCKED (allow create: if false).
+    //   All authoritative orders MUST be minted server-side by /api/orders/create using Firebase Admin SDK.
+    // - Read: Staff can read their branch orders; authenticated customers can read only their own orders.
+    // - Update: Staff can update status & kitchen notes; customers can cancel ONLY while status is still 'new'.
+    //   Critical fields (total, customer_phone, branch, items, order_number) are immutable on update.
+    // - Delete: Global admin only.
+    match /orders/{orderId} {
+      allow read, list: if isGlobalAdmin() ||
+        (isStaffMember() && canAccessBranch(resource.data.branch)) ||
+        (isAuthenticated() && resource.data.user_id == request.auth.uid);
+
+      // Direct client creation is blocked: enforced via server-side Admin SDK only
+      allow create: if false;
+
+      allow update: if (
+        ((isGlobalAdmin() || (isStaffMember() && canAccessBranch(resource.data.branch))) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updated_at', 'server_timestamp', 'kitchen_notes', 'server_updated_at']) &&
+        request.resource.data.total == resource.data.total &&
+        request.resource.data.customer_phone == resource.data.customer_phone &&
+        request.resource.data.branch == resource.data.branch)
+        ||
+        ((resource.data.status == 'new' || resource.data.status == 'جديد') &&
+         (request.resource.data.status == 'cancelled' || request.resource.data.status == 'ملغي') &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updated_at', 'server_updated_at']) &&
+         (isAuthenticated() && resource.data.user_id == request.auth.uid))
+        ||
+        isGlobalAdmin()
+      );
+
+      allow delete: if isGlobalAdmin();
+    }
+
+    // Idempotency records - managed by server via Admin SDK; locked down completely from clients
+    match /idempotency_records/{recordId} {
+      allow read, write: if false;
+    }
+
+    // Counters collection (sequential order numbers)
+    // Read is public/admin; writes are COMPLETELY BLOCKED from clients.
+    // Only the server-side Firebase Admin SDK in atomic transaction increments this counter.
+    match /counters/{counterId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

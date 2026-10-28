@@ -16,6 +16,9 @@ dist-ssr
 .nitro
 *.local
 
+# Vercel output
+.vercel/
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
@@ -28,5 +31,12 @@ dist-ssr
 *.suo
 *.ntvs*
 *.njsproj
-*.sln
 *.sw?
+
+# Environment & Firebase credentials
+.env
+.env.*
+!.env.example
+*.local
+serviceAccountKey.json
+service-account*.json

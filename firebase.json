@@ -1,0 +1,22 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true
+    }
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8081
+    },
+    "auth": {
+      "port": 9100
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4001
+    }
+  }
+}
