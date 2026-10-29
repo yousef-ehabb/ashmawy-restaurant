@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
-import { Menu, ShoppingBag, X } from "lucide-react";
+import { Link, useLocation } from "@tanstack/react-router";
+import { Menu, ShoppingBag, X, PackageSearch } from "lucide-react";
 import { useState } from "react";
 import logo from "@/assets/ashmawy-logo.png.asset.json";
 import { useCart } from "@/lib/cart";
@@ -15,6 +15,12 @@ export const navLinks = [
 export function Header() {
   const { count, setOpen } = useCart();
   const [mobile, setMobile] = useState(false);
+  const location = useLocation();
+
+  // Completely hide header on /admin
+  if (location.pathname.startsWith("/admin")) {
+    return null;
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/90 backdrop-blur">
@@ -33,6 +39,13 @@ export function Header() {
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
+          <Link
+            to="/track"
+            className="hidden items-center gap-1.5 rounded-full border border-primary/40 bg-card px-4 py-2 text-sm font-bold text-primary shadow-xs transition hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:inline-flex"
+          >
+            <PackageSearch className="h-4 w-4" />
+            <span>تتبع طلبك</span>
+          </Link>
           <a href="/#menu" className="hidden rounded-full bg-primary px-5 py-2.5 text-sm font-extrabold text-primary-foreground shadow-pop transition hover:bg-primary-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:inline-flex">
             اطلب الآن
           </a>
@@ -65,7 +78,15 @@ export function Header() {
               {l.label}
             </a>
           ))}
-          <a href="/#menu" onClick={() => setMobile(false)} className="mt-3 block rounded-full bg-primary py-3 text-center font-extrabold text-primary-foreground">
+          <Link
+            to="/track"
+            onClick={() => setMobile(false)}
+            className="mt-3 flex items-center justify-center gap-2 rounded-full border border-primary/40 bg-card py-2.5 text-center font-bold text-primary shadow-xs"
+          >
+            <PackageSearch className="h-4 w-4" />
+            <span>تتبع طلبك</span>
+          </Link>
+          <a href="/#menu" onClick={() => setMobile(false)} className="mt-2 block rounded-full bg-primary py-3 text-center font-extrabold text-primary-foreground">
             اطلب الآن
           </a>
         </nav>

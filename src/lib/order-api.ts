@@ -21,6 +21,64 @@ export interface CreateOrderResponse {
   total: number;
 }
 
+// --- Order Tracking Types ---
+
+export interface TrackedOrderItem {
+  product_id: string;
+  name_ar: string;
+  name_en?: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  size?: { id: string; label: string; price: number };
+  extras?: Array<{ id: string; name_ar: string; price: number }>;
+}
+
+export interface TrackedOrder {
+  order_number: number;
+  status: string;
+  type: 'delivery' | 'pickup';
+  branch: string;
+  address?: string;
+  items: TrackedOrderItem[];
+  subtotal: number;
+  delivery_fee: number;
+  total: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface TrackOrderResponse {
+  success: boolean;
+  order: TrackedOrder;
+}
+
+/**
+ * Track an order by its sequential order number and customer phone.
+ * The phone is used as a privacy verification check on the server.
+ */
+export async function trackOrderByApi(orderNumber: string, phone: string): Promise<TrackOrderResponse> {
+  const params = new URLSearchParams({
+    orderNumber: orderNumber.replace(/^#/, '').trim(),
+    phone: phone.replace(/[\s-]/g, ''),
+  });
+
+  const response = await fetch(`/api/orders/track?${params.toString()}`, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || !data?.success) {
+    throw new Error(
+      data?.error || 'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف'
+    );
+  }
+
+  return data as TrackOrderResponse;
+}
+
 export async function submitOrderToApi(params: CreateOrderParams): Promise<CreateOrderResponse> {
   const idempotencyKey =
     params.idempotency_key ||

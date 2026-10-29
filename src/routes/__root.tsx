@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useLocation,
   HeadContent,
   Scripts,
   type ErrorComponentProps,
@@ -109,15 +110,18 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const location = useLocation();
+  const isAdmin = location.pathname.startsWith("/admin");
+
   return (
     <QueryClientProvider client={queryClient}>
       <CartProvider>
-        <Header />
-        <main className="overflow-x-clip">
+        {!isAdmin && <Header />}
+        <main className={isAdmin ? "" : "overflow-x-clip"}>
           <Outlet />
         </main>
-        <Footer />
-        <CartDrawer />
+        {!isAdmin && <Footer />}
+        {!isAdmin && <CartDrawer />}
         <Toaster position="top-center" />
       </CartProvider>
     </QueryClientProvider>

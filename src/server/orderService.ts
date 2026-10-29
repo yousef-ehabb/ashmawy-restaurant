@@ -44,6 +44,32 @@ function cleanForFirestore<T>(val: T): T {
   return val;
 }
 
+export const VALID_ORDER_STATUSES = [
+  'pending',
+  'confirmed',
+  'new',
+  'preparing',
+  'ready',
+  'ready_for_pickup',
+  'out_for_delivery',
+  'completed',
+  'cancelled',
+] as const;
+
+export type OrderStatus = typeof VALID_ORDER_STATUSES[number];
+
+export const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  pending: ['confirmed', 'preparing', 'cancelled'],
+  new: ['confirmed', 'preparing', 'cancelled'],
+  confirmed: ['preparing', 'cancelled'],
+  preparing: ['ready_for_pickup', 'ready', 'out_for_delivery', 'cancelled'],
+  ready_for_pickup: ['out_for_delivery', 'completed', 'cancelled'],
+  ready: ['ready_for_pickup', 'out_for_delivery', 'completed', 'cancelled'],
+  out_for_delivery: ['completed', 'cancelled'],
+  completed: [],
+  cancelled: [],
+};
+
 export async function processCreateOrder(rawInput: unknown): Promise<{
   success: true;
   orderId: string;
@@ -155,17 +181,26 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       }
     }
 
-    // 6. Fetch products and options authoritatively from Firestore
+    // 6. Fetch products, options, and menu availability authoritatively from Firestore
     const productIds = Array.from(new Set(input.items.map((i) => i.product_id)));
-    const productDocs = await Promise.all(
-      productIds.map((id) => adminDb.collection('products').doc(id).get())
-    );
+    const [productDocsResult, availabilityDoc] = await Promise.all([
+      Promise.all(productIds.map((id) => adminDb.collection('products').doc(id).get())),
+      adminDb.collection('menu_availability').doc('current').get().catch(() => null),
+    ]);
+    const productDocs = productDocsResult;
     const productMap = new Map<string, Record<string, any>>();
     for (const docSnap of productDocs) {
       if (docSnap.exists) {
         productMap.set(docSnap.id, docSnap.data() as Record<string, any>);
       }
     }
+
+    // Parse menu_availability document for real-time admin toggles
+    const menuAvail = availabilityDoc?.exists
+      ? (availabilityDoc.data() as Record<string, any>)
+      : null;
+    const itemsAvail = (menuAvail?.['items'] || {}) as Record<string, any>;
+    const extrasAvail = (menuAvail?.['extras'] || {}) as Record<string, any>;
 
     // Fetch all requested option / size documents
     const optionIds = new Set<string>();
@@ -202,6 +237,24 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
         throw new OrderValidationError(`المنتج "${product['name_ar']}" غير متاح في ${input.branch}.`, 422);
       }
 
+      // Check admin menu_availability toggles (real-time admin controls)
+      const itemAvailEntry = itemsAvail[item.product_id];
+      if (itemAvailEntry) {
+        if (itemAvailEntry['isAvailableGlobal'] === false) {
+          throw new OrderValidationError(
+            `المنتج "${product['name_ar']}" غير متاح حالياً (تم إيقافه من لوحة التحكم).`,
+            422
+          );
+        }
+        const itemBranchAvail = itemAvailEntry['branchAvailability'] as Record<string, boolean> | undefined;
+        if (itemBranchAvail?.[input.branch] === false) {
+          throw new OrderValidationError(
+            `المنتج "${product['name_ar']}" غير متاح في ${input.branch} حالياً.`,
+            422
+          );
+        }
+      }
+
       let baseUnitPrice = Number(product['price']) || 0;
       let verifiedSize: VerifiedOrderItem['size'] = undefined;
 
@@ -236,6 +289,24 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
           const extraBranchAvail = extraDoc['branch_availability'] as Record<string, boolean> | undefined;
           if (extraBranchAvail?.[input.branch] === false) {
             throw new OrderValidationError(`الإضافة "${extraDoc['name_ar']}" غير متوفرة في ${input.branch}.`, 422);
+          }
+
+          // Check admin menu_availability toggles for extras
+          const extraAvailEntry = extrasAvail[extraId];
+          if (extraAvailEntry) {
+            if (extraAvailEntry['isAvailableGlobal'] === false) {
+              throw new OrderValidationError(
+                `الإضافة "${extraDoc['name_ar']}" غير متوفرة حالياً (تم إيقافها من لوحة التحكم).`,
+                422
+              );
+            }
+            const extraBranchToggle = extraAvailEntry['branchAvailability'] as Record<string, boolean> | undefined;
+            if (extraBranchToggle?.[input.branch] === false) {
+              throw new OrderValidationError(
+                `الإضافة "${extraDoc['name_ar']}" غير متوفرة في ${input.branch} حالياً.`,
+                422
+              );
+            }
           }
           const delta = Number(extraDoc['price_delta']) || 0;
           extrasDeltaSum += delta;
@@ -306,11 +377,11 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
         { merge: true }
       );
 
-      // Create authoritative order document
+      // Create authoritative order document with initial 'pending' status
       const orderPayload = {
         id: newOrderRef.id,
         order_number: nextNumber,
-        status: 'new',
+        status: 'pending',
         customer_name: input.customer_name,
         customer_phone: input.customer_phone,
         address: input.type === 'delivery' ? input.address : '',
@@ -357,7 +428,7 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       order: {
         id: newOrderRef.id,
         order_number: allocatedNumber,
-        status: 'new',
+        status: 'pending',
         customer_name: input.customer_name,
         customer_phone: input.customer_phone,
         address: input.type === 'delivery' ? input.address : '',
@@ -400,26 +471,6 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
   }
 }
 
-export const VALID_ORDER_STATUSES = [
-  'new',
-  'preparing',
-  'ready',
-  'out_for_delivery',
-  'completed',
-  'cancelled',
-] as const;
-
-export type OrderStatus = typeof VALID_ORDER_STATUSES[number];
-
-export const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  new: ['preparing', 'cancelled'],
-  preparing: ['ready', 'cancelled'],
-  ready: ['out_for_delivery', 'completed', 'cancelled'],
-  out_for_delivery: ['completed', 'cancelled'],
-  completed: [],
-  cancelled: [],
-};
-
 export async function processUpdateOrderStatus(params: {
   orderId: string;
   status: string;
@@ -457,7 +508,7 @@ export async function processUpdateOrderStatus(params: {
   }
 
   const orderData = existing.data() as Record<string, any>;
-  const currentStatus = (orderData['status'] || 'new') as OrderStatus;
+  const currentStatus = (orderData['status'] || 'pending') as OrderStatus;
 
   // Validate status transition
   if (currentStatus !== targetStatus) {
@@ -488,3 +539,130 @@ export async function processUpdateOrderStatus(params: {
     status: targetStatus,
   };
 }
+
+/**
+ * Normalizes an Egyptian phone string by removing all non-numeric characters
+ * and stripping any leading country code (+2 / 20) or leading zero.
+ */
+function cleanPhoneDigits(phone: string): string {
+  let cleaned = phone.replace(/\D/g, '');
+  if (cleaned.startsWith('20')) {
+    cleaned = cleaned.substring(2);
+  }
+  if (cleaned.startsWith('0')) {
+    cleaned = cleaned.substring(1);
+  }
+  return cleaned;
+}
+
+/**
+ * Track an order by its sequential order number and customer phone.
+ * Handles numeric 1001, string "1001", and "#1001" formats.
+ * Performs privacy & security phone matching check.
+ */
+export async function trackOrder(
+  orderNumber: string | number,
+  phone: string
+): Promise<{
+  success: true;
+  order: {
+    order_number: number;
+    status: string;
+    type: 'delivery' | 'pickup';
+    branch: string;
+    address?: string;
+    items: any[];
+    subtotal: number;
+    delivery_fee: number;
+    total: number;
+    created_at: string;
+    updated_at?: string;
+  };
+}> {
+  const rawNumStr = String(orderNumber).replace(/^#/, '').trim();
+  const numericVal = parseInt(rawNumStr, 10);
+
+  if (isNaN(numericVal) || numericVal < 1) {
+    throw new OrderValidationError(
+      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      404
+    );
+  }
+
+  const normalizedInputPhone = cleanPhoneDigits(phone);
+  if (normalizedInputPhone.length < 9) {
+    throw new OrderValidationError(
+      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      404
+    );
+  }
+
+  const { adminDb } = getFirebaseAdmin();
+  let foundDoc: any = null;
+
+  // Search variations for order_number or orderNumber (numeric, string, with #)
+  const queries = [
+    adminDb.collection('orders').where('order_number', '==', numericVal).limit(1),
+    adminDb.collection('orders').where('order_number', '==', rawNumStr).limit(1),
+    adminDb.collection('orders').where('order_number', '==', `#${rawNumStr}`).limit(1),
+    adminDb.collection('orders').where('orderNumber', '==', numericVal).limit(1),
+    adminDb.collection('orders').where('orderNumber', '==', rawNumStr).limit(1),
+    adminDb.collection('orders').where('orderNumber', '==', `#${rawNumStr}`).limit(1),
+  ];
+
+  for (const q of queries) {
+    const snap = await q.get();
+    if (!snap.empty) {
+      foundDoc = snap.docs[0];
+      break;
+    }
+  }
+
+  if (!foundDoc) {
+    throw new OrderValidationError(
+      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      404
+    );
+  }
+
+  const data = foundDoc.data() as Record<string, any>;
+
+  // Privacy & Security Check: verify customer phone
+  const storedPhone = String(
+    data['customer_phone'] || data['customerPhone'] || data['phone'] || ''
+  );
+  const normalizedStoredPhone = cleanPhoneDigits(storedPhone);
+
+  if (!normalizedStoredPhone || normalizedStoredPhone !== normalizedInputPhone) {
+    throw new OrderValidationError(
+      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      404
+    );
+  }
+
+  return {
+    success: true,
+    order: {
+      order_number: Number(data['order_number'] ?? data['orderNumber'] ?? numericVal),
+      status: String(data['status'] || 'pending'),
+      type: (data['type'] as 'delivery' | 'pickup') || 'delivery',
+      branch: String(data['branch'] || ''),
+      ...(data['type'] === 'delivery' && data['address'] ? { address: String(data['address']) } : {}),
+      items: Array.isArray(data['items']) ? data['items'] : [],
+      subtotal: Number(data['subtotal'] || 0),
+      delivery_fee: Number(data['delivery_fee'] ?? data['deliveryFee'] ?? 0),
+      total: Number(data['total'] || 0),
+      created_at: String(data['created_at'] || new Date().toISOString()),
+      ...(data['updated_at'] ? { updated_at: String(data['updated_at']) } : {}),
+    },
+  };
+}
+
+// Alias for backwards compatibility
+export const processTrackOrder = trackOrder;
+
+export const orderService = {
+  createOrder: processCreateOrder,
+  updateOrderStatus: processUpdateOrderStatus,
+  trackOrder,
+};

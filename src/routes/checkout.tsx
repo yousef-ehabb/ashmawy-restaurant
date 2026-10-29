@@ -12,6 +12,7 @@ import {
   Receipt,
   Store,
   Truck,
+  PackageSearch,
 } from "lucide-react";
 import { useCart, type CartLine } from "@/lib/cart";
 import { formatEGP } from "@/data/menu";
@@ -173,6 +174,10 @@ function Checkout() {
 
   // SUCCESS CONFIRMATION RECEIPT SCREEN
   if (confirmedOrder) {
+    const branchLabel = confirmedOrder.branch.startsWith("فرع ")
+      ? confirmedOrder.branch
+      : `فرع ${confirmedOrder.branch}`;
+
     return (
       <div className="mx-auto max-w-2xl px-4 py-12">
         <div className="rounded-3xl border border-border bg-card p-6 shadow-card sm:p-8">
@@ -192,8 +197,24 @@ function Checkout() {
                 #{confirmedOrder.orderNumber}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground">
-              سيتواصل معك فرع {confirmedOrder.branch} هاتفياً لتأكيد الطلب وتوصيله في أسرع وقت.
+
+            {/* PROMINENT LIVE TRACKING CTA BUTTON */}
+            <div className="my-3">
+              <Link
+                to="/track"
+                search={{
+                  orderNumber: String(confirmedOrder.orderNumber),
+                  phone: confirmedOrder.customer_phone,
+                }}
+                className="inline-flex w-full sm:w-auto items-center justify-center gap-2.5 rounded-full bg-gradient-to-l from-red-600 to-orange-500 px-8 py-4 text-base font-extrabold text-white shadow-pop transition hover:brightness-110"
+              >
+                <PackageSearch className="h-5 w-5" />
+                تتبع حالة طلبك مباشرة
+              </Link>
+            </div>
+
+            <p className="mt-3 text-sm text-muted-foreground">
+              سيتواصل معك {branchLabel} هاتفياً لتأكيد الطلب وتوصيله في أسرع وقت.
             </p>
           </div>
 
@@ -261,12 +282,23 @@ function Checkout() {
 
           <div className="mt-8 flex flex-col sm:flex-row gap-3">
             <Link
+              to="/track"
+              search={{
+                orderNumber: String(confirmedOrder.orderNumber),
+                phone: confirmedOrder.customer_phone,
+              }}
+              className="flex flex-1 items-center justify-center gap-2 rounded-full bg-primary py-3.5 font-bold text-primary-foreground shadow-pop transition hover:bg-primary-deep"
+            >
+              <PackageSearch className="h-5 w-5" />
+              تتبع حالة طلبك مباشرة
+            </Link>
+            <Link
               to="/"
               onClick={() => {
                 sessionStorage.removeItem(LAST_ORDER_KEY);
                 setConfirmedOrder(null);
               }}
-              className="flex flex-1 items-center justify-center gap-2 rounded-full bg-primary py-3.5 font-bold text-primary-foreground shadow-pop transition hover:bg-primary-deep"
+              className="flex items-center justify-center gap-2 rounded-full border border-border bg-card px-6 py-3.5 font-bold text-foreground transition hover:border-primary"
             >
               طلب وجبة جديدة
             </Link>
