@@ -432,6 +432,68 @@ function AdminDashboard() {
     }
   };
 
+  // Delete single order
+  const handleDeleteOrder = async (orderId: string, orderNumber: number) => {
+    if (!confirm(`هل أنت متأكد من حذف الطلب رقم #${orderNumber} نهائياً؟`)) {
+      return;
+    }
+    setUpdatingId(orderId);
+    try {
+      const token = user ? await user.getIdToken() : "";
+      const res = await fetch("/api/admin/orders/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "فشل حذف الطلب");
+      }
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    } catch (err: any) {
+      alert("فشل حذف الطلب: " + (err.message || "حدث خطأ"));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // Clear all orders
+  const handleClearAllOrders = async () => {
+    if (orders.length === 0) {
+      alert("لا توجد طلبات لحذفها.");
+      return;
+    }
+    const count = orders.length;
+    if (!confirm(`⚠️ تحذير: هل أنت متأكد من حذف جميع الطلبات (${count} طلب) نهائياً من قاعدة البيانات؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+      return;
+    }
+    setOrdersLoading(true);
+    try {
+      const token = user ? await user.getIdToken() : "";
+      const res = await fetch("/api/admin/orders/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ deleteAll: true }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "فشل حذف الطلبات");
+      }
+      setOrders([]);
+      alert(`تم حذف جميع الطلبات بنجاح (${data.deletedCount || count} طلب).`);
+    } catch (err: any) {
+      alert("فشل حذف الطلبات: " + (err.message || "حدث خطأ"));
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     setHasLoggedInThisVisit(false);
     setUser(null);
@@ -651,6 +713,8 @@ function AdminDashboard() {
             setSearchQuery={setSearchQuery}
             updatingId={updatingId}
             handleUpdateStatus={handleUpdateStatus}
+            handleDeleteOrder={handleDeleteOrder}
+            handleClearAllOrders={handleClearAllOrders}
           />
         ) : activeTab === "menu" ? (
           <MenuAvailabilityView user={user} />
@@ -680,6 +744,8 @@ function OrdersView({
   setSearchQuery,
   updatingId,
   handleUpdateStatus,
+  handleDeleteOrder,
+  handleClearAllOrders,
 }: {
   orders: AdminOrder[];
   filteredOrders: AdminOrder[];
@@ -693,6 +759,8 @@ function OrdersView({
   setSearchQuery: (v: string) => void;
   updatingId: string | null;
   handleUpdateStatus: (orderId: string, newStatus: OrderStatus) => void;
+  handleDeleteOrder: (orderId: string, orderNumber: number) => void;
+  handleClearAllOrders: () => void;
 }) {
   return (
     <>
@@ -789,6 +857,18 @@ function OrdersView({
               className="w-full rounded-xl border border-input bg-card py-1.5 pr-8 pl-3 text-xs outline-none focus:border-primary"
             />
           </div>
+
+          {orders.length > 0 && (
+            <button
+              onClick={handleClearAllOrders}
+              className="flex items-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs font-bold text-destructive hover:bg-destructive hover:text-destructive-foreground transition shrink-0"
+              title="حذف جميع الطلبات نهائياً من قاعدة البيانات"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">مسح جميع الطلبات</span>
+              <span>({orders.length})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -848,13 +928,23 @@ function OrdersView({
                         {statusCfg.label}
                       </span>
                     </div>
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" />
-                      {new Date(order.created_at).toLocaleTimeString("ar-EG", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" />
+                        {new Date(order.created_at).toLocaleTimeString("ar-EG", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteOrder(order.id, order.order_number)}
+                        disabled={isUpdating}
+                        className="rounded-lg p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition disabled:opacity-50"
+                        title="حذف هذا الطلب نهائياً"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* CUSTOMER & BRANCH INFO */}

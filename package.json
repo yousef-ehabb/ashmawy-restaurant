@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "create-admin": "node scripts/create-admin.mjs",
+    "clear-orders": "node scripts/clear-orders.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"

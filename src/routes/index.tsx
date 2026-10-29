@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Facebook, MapPin, Phone, Search, Clock } from "lucide-react";
+import { Facebook, MapPin, Phone, Search, Clock, ShoppingBag } from "lucide-react";
 import { useMemo, useState } from "react";
-import heroFood from "@/assets/hero-food.jpg";
 import mealImg from "@/assets/meal-chicken.jpg";
 import crispyImg from "@/assets/crepe-crispy.jpg";
 import logo from "@/assets/ashmawy-logo.png.asset.json";
@@ -12,6 +11,8 @@ import { useProducts } from "@/hooks/useProducts";
 import { useCategories } from "@/hooks/useCategories";
 import { useRestaurantSettings } from "@/hooks/useRestaurantSettings";
 import { useOperationalControl } from "@/hooks/useOperationalControl";
+import { HeroSlideshow } from "@/components/site/HeroSlideshow";
+import { HeroWaveTransition } from "@/components/site/HeroWaveTransition";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -55,37 +56,87 @@ function Index() {
   );
 }
 
+/* ─────────────────────────────────────────────────
+   Hero – full-width photographic slideshow
+   ───────────────────────────────────────────────── */
 function Hero() {
+  const scrollToMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    const menu = document.getElementById("menu");
+    if (menu) {
+      menu.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   return (
-    <section className="relative bg-primary text-primary-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-stripes opacity-20" />
-      <div className="relative mx-auto grid max-w-6xl items-center gap-8 px-4 py-10 md:grid-cols-[1.05fr_1fr] md:py-14">
-        <div>
-          <p className="mb-3 inline-block rounded-full bg-primary-deep px-3 py-1 text-sm font-bold">{restaurant.slogan}</p>
-          <h1 className="font-display text-5xl leading-[1.15] sm:text-6xl lg:text-7xl">
-            جعان؟ <span className="text-accent">عشماوي</span><br />عنده الحل!
-          </h1>
-          <p className="mt-4 max-w-md text-lg leading-8 text-primary-foreground/90">
-            كريبات محشية على الآخر، كريسبي مقرمش وبطاطس دهبي.. كله طازة ومعمول بمزاج.
+    <section className="hero-section relative overflow-hidden" aria-label="البطل الرئيسي">
+      {/* Slideshow images + controls */}
+      <HeroSlideshow />
+
+      {/* Gradient overlays */}
+      <div className="hero-gradient" aria-hidden="true" />
+
+      {/* Content */}
+      <div className="relative z-10 mx-auto flex h-full max-w-4xl flex-col items-center justify-end px-4 pb-16 pt-20 text-center sm:pb-20 sm:pt-24 md:pb-24">
+        <div className="flex flex-col items-center">
+          {/* Headline with Red Brush Accent */}
+          <div className="relative inline-block">
+            <h1 className="hero-headline relative z-10 font-display">
+              عشماوي
+            </h1>
+            <svg
+              viewBox="0 0 280 32"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              className="hero-brush-stroke pointer-events-none absolute -bottom-1 sm:-bottom-2 right-1/2 w-[116%] max-w-[340px] translate-x-1/2 -z-0 select-none text-primary"
+              aria-hidden="true"
+              preserveAspectRatio="none"
+            >
+              <path
+                d="M7 21C28 15.5 76 11 138 10C194 9.2 248 11.8 274 15C278 15.5 277 19.5 271 20.2C226 24.5 174 26.5 125 26.2C78 25.8 32 23.8 6 21C2.5 20.6 3 19.5 7 21Z"
+                fill="currentColor"
+              />
+              <path
+                d="M18 23.5C64 26.5 125 27.8 178 27.2C228 26.6 268 24.8 278 23.2C281 22.8 280 25.4 274 26.1C246 29 198 30.5 146 30.2C96 29.8 45 28 15 25C11 24.6 13 22.8 18 23.5Z"
+                fill="currentColor"
+                opacity="0.8"
+              />
+              <path
+                d="M3 18C24 15 52 13.5 82 12.8C85 12.7 84 14.5 81 14.7C54 15.5 28 17 4 19.5C2 19.8 1.5 18.2 3 18Z"
+                fill="currentColor"
+                opacity="0.6"
+              />
+            </svg>
+          </div>
+
+          {/* Tagline */}
+          <p className="hero-tagline mt-3 sm:mt-4">
+            اسم كبير... طعم تقيل
           </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <a href="#menu" className="rounded-full bg-accent px-7 py-3.5 font-extrabold text-accent-foreground shadow-card transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream">
-              اطلب أكلك دلوقتي
-            </a>
-            <a href="#menu" className="rounded-full border-2 border-primary-foreground/60 px-7 py-3.5 font-extrabold transition hover:bg-primary-foreground hover:text-primary">
-              شوف المنيو
+
+          {/* Single Primary CTA */}
+          <div className="mt-5 sm:mt-6">
+            <a
+              href="#menu"
+              onClick={scrollToMenu}
+              className="hero-cta group inline-flex items-center justify-center gap-2 rounded-full bg-primary px-8 py-3.5 text-base font-extrabold text-white shadow-pop transition-all duration-300 hover:bg-primary-deep hover:shadow-lg hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ink active:translate-y-0"
+            >
+              <ShoppingBag className="h-4 w-4 transition-transform duration-300 group-hover:scale-110" />
+              <span>اطلب دلوقتي</span>
             </a>
           </div>
         </div>
-        <div className="relative">
-          <img src={heroFood} alt="فراخ كريسبي وكريب محشي وبطاطس" width={1280} height={960} className="aspect-[4/3] w-full rounded-3xl object-cover shadow-pop ring-4 ring-primary-foreground/15" />
-          <img src={logo.url} alt="عشماوي" width={140} height={140} className="absolute -bottom-6 -right-3 h-28 w-28 rounded-full border-4 border-primary-foreground object-cover shadow-pop sm:h-36 sm:w-36" />
-        </div>
       </div>
+
+      {/* Smooth Wave Transition to Menu Section */}
+      <HeroWaveTransition />
     </section>
   );
 }
 
+/* ─────────────────────────────────────────────────
+   Menu Section – preserved from existing
+   ───────────────────────────────────────────────── */
 function MenuSection() {
   const { categories, isLoading: isCatsLoading, isError: isCatsError, refetch: refetchCats } = useCategories();
   const { products, isLoading: isProdsLoading, isError: isProdsError, refetch: refetchProds } = useProducts();
@@ -116,7 +167,7 @@ function MenuSection() {
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="font-latin text-sm font-bold text-accent">OUR MENU</p>
-          <h2 className="font-display text-4xl text-primary sm:text-5xl">المنيو</h2>
+          <h2 className="font-display text-section text-primary">المنيو</h2>
         </div>
         <label className="relative w-full md:w-80">
           <span className="sr-only">ابحث في المنيو</span>
@@ -130,7 +181,7 @@ function MenuSection() {
         </label>
       </div>
 
-      <div className="sticky top-[65px] z-30 -mx-4 mt-5 bg-background/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-[64px] z-30 -mx-4 mt-5 bg-background/95 px-4 py-3 backdrop-blur">
         <div className="no-scrollbar flex gap-2 overflow-x-auto md:flex-wrap" role="tablist" aria-label="أقسام المنيو">
           <button
             role="tab"
@@ -238,7 +289,7 @@ function Offers() {
   ];
   return (
     <section id="offers" className="mx-auto max-w-6xl px-4 pt-16">
-      <h2 className="font-display text-4xl text-primary sm:text-5xl">عروضنا</h2>
+      <h2 className="font-display text-section text-primary">عروضنا</h2>
       <p className="mt-1 text-sm text-muted-foreground">العروض الموسمية بتتعلن على صفحتنا على فيسبوك.</p>
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         {cards.map((c) => (
@@ -262,7 +313,7 @@ function About() {
       <div className="grid items-center gap-8 overflow-hidden rounded-3xl bg-secondary p-6 md:grid-cols-[auto_1fr] md:p-10">
         <img src={logo.url} alt="شخصية عشماوي" width={240} height={240} loading="lazy" className="mx-auto h-48 w-48 rounded-3xl object-cover shadow-card md:h-60 md:w-60" />
         <div>
-          <h2 className="font-display text-4xl text-primary sm:text-5xl">من نحن</h2>
+          <h2 className="font-display text-section text-primary">من نحن</h2>
           <p className="mt-4 text-lg leading-9">
             عشماوي براند أكل مصري من أسوان، بيقدم كريبات الفراخ والكريسبي والساندوتشات والوجبات بطعم جامد وكميات تشبّع.
             خلطتنا السرية في الكريسبي هي سر "الطعم التقيل" اللي بنحبه.
@@ -290,7 +341,7 @@ function Contact() {
 
   return (
     <section id="contact" className="mx-auto max-w-6xl px-4 pt-16">
-      <h2 className="font-display text-4xl text-primary sm:text-5xl">تواصل معنا</h2>
+      <h2 className="font-display text-section text-primary">تواصل معنا</h2>
       <div className="mt-6 grid gap-4 md:grid-cols-3">
         {branches.map((b) => (
           <div key={b.label} className="rounded-2xl border border-border bg-card p-5 shadow-card">

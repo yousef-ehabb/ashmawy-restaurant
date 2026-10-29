@@ -112,12 +112,13 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const location = useLocation();
   const isAdmin = location.pathname.startsWith("/admin");
+  const isHomepage = location.pathname === "/";
 
   return (
     <QueryClientProvider client={queryClient}>
       <CartProvider>
         {!isAdmin && <Header />}
-        <main className={isAdmin ? "" : "overflow-x-clip"}>
+        <main className={isAdmin ? "" : `overflow-x-clip${!isHomepage ? " pt-16" : ""}`}>
           <Outlet />
         </main>
         {!isAdmin && <Footer />}

@@ -47,16 +47,16 @@ export function ProductCard({ product, selectedBranch }: ProductCardProps) {
         </div>
       </div>
       <div className="flex flex-1 flex-col p-3 sm:p-4">
-        <h3 className="text-base font-extrabold leading-6 sm:text-lg">{product.nameAr}</h3>
+        <h3 className="text-product font-bold leading-snug">{product.nameAr}</h3>
         {product.nameEn && <p className="font-latin text-xs text-muted-foreground" dir="ltr">{product.nameEn}</p>}
-        {product.description && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{product.description}</p>}
+        {product.description && <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground font-normal">{product.description}</p>}
         <div className="mt-auto flex items-center justify-between gap-2 pt-3">
           <span className="font-extrabold text-primary">
             {product.sizes && product.sizes.length > 1 && <span className="text-xs font-semibold text-muted-foreground">من </span>}
             {formatEGP(product.sizes?.[0]?.price ?? product.price)}
           </span>
           {available ? (
-            <button onClick={quickAdd} className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-2 text-xs font-extrabold text-primary-foreground transition hover:bg-primary-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:text-sm" aria-label={`أضف ${product.nameAr} للسلة`}>
+            <button onClick={quickAdd} className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-2 text-xs font-bold text-primary-foreground transition hover:bg-primary-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:text-sm" aria-label={`أضف ${product.nameAr} للسلة`}>
               <Plus className="h-4 w-4" /><span className="hidden min-[380px]:inline">أضف للسلة</span>
             </button>
           ) : (

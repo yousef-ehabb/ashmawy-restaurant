@@ -183,6 +183,60 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }
   }
 
+  // 4b. Admin Order Delete Endpoint: POST /api/admin/orders/delete
+  if (pathname === '/api/admin/orders/delete') {
+    if (method !== 'POST') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+
+    const authResult = await verifyAdminRequest(request);
+    if (!authResult.authorized) {
+      return jsonResponse({ success: false, error: authResult.error }, authResult.statusCode);
+    }
+
+    try {
+      const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+      const { orderId, deleteAll } = body;
+      const { adminDb } = getFirebaseAdmin();
+
+      if (deleteAll === true || orderId === 'all') {
+        const snapshot = await adminDb.collection('orders').get();
+        const totalCount = snapshot.size;
+
+        const docs = snapshot.docs;
+        for (let i = 0; i < docs.length; i += 400) {
+          const chunk = docs.slice(i, i + 400);
+          const batch = adminDb.batch();
+          chunk.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+        }
+
+        // Also clean up idempotency records
+        try {
+          const idempSnap = await adminDb.collection('idempotency_records').get();
+          for (let i = 0; i < idempSnap.docs.length; i += 400) {
+            const chunk = idempSnap.docs.slice(i, i + 400);
+            const batch = adminDb.batch();
+            chunk.forEach((d) => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } catch {}
+
+        return jsonResponse({ success: true, deletedCount: totalCount }, 200);
+      }
+
+      if (!orderId || typeof orderId !== 'string') {
+        return jsonResponse({ success: false, error: 'Missing orderId or deleteAll flag' }, 400);
+      }
+
+      await adminDb.collection('orders').doc(orderId).delete();
+      return jsonResponse({ success: true, deletedId: orderId }, 200);
+    } catch (err: any) {
+      console.error('[API /api/admin/orders/delete] Error deleting orders:', err);
+      return jsonResponse({ success: false, error: err.message || 'Internal server error' }, 500);
+    }
+  }
+
   // 5. Menu Availability Public Endpoint: GET /api/menu/availability
   if (pathname === '/api/menu/availability') {
     if (method !== 'GET') {
