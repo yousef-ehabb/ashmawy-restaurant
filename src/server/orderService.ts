@@ -4,6 +4,10 @@ import {
   type OrderCreateInput,
   type VerifiedOrderItem,
 } from './orderValidation.ts';
+import {
+  isWithinCairoShift,
+  type OperationalControlSettings,
+} from '../types/operational.ts';
 
 interface CachedOrderResponse {
   orderId: string;
@@ -163,23 +167,57 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       }
     }
 
-    // 5. Read Global Settings and Branch Operating State
-    const settingsDoc = await adminDb.collection('settings').doc('global').get();
-    const settings = settingsDoc.exists ? (settingsDoc.data() as Record<string, any>) : null;
+    // 5. Read Operational Control Settings and Branch Operating State
+    const [opDoc, legacySettingsDoc] = await Promise.all([
+      adminDb.collection('settings').doc('operational_control').get().catch(() => null),
+      adminDb.collection('settings').doc('global').get().catch(() => null),
+    ]);
 
-    if (settings) {
-      if (settings['is_website_open'] === false) {
+    const opSettings = opDoc?.exists ? (opDoc.data() as OperationalControlSettings) : null;
+    const legacySettings = legacySettingsDoc?.exists ? (legacySettingsDoc.data() as Record<string, any>) : null;
+
+    // Check Operational Control (Primary)
+    if (opSettings) {
+      if (opSettings.isSiteOpen === false) {
         throw new OrderValidationError(
-          settings['closed_message'] || 'المطعم مغلق حالياً، نعتذر عن استقبال الطلبات.',
+          opSettings.globalClosedMessage || 'المطعم مغلق حالياً، نعتذر عن استقبال الطلبات.',
           422
         );
       }
-      const branches = settings['branches'] as Record<string, any> | undefined;
+
+      const branchConfig = opSettings.branches?.[input.branch];
+      if (branchConfig) {
+        if (branchConfig.isOpen === false) {
+          throw new OrderValidationError(
+            branchConfig.closedMessage || `نعتذر، ${input.branch} مغلق حالياً.`,
+            422
+          );
+        }
+
+        // Auto-close after hours check (2:00 AM)
+        if (branchConfig.autoCloseAfterHours && !isWithinCairoShift()) {
+          throw new OrderValidationError(
+            branchConfig.closedMessage || `نعتذر، ${input.branch} مغلق تلقائياً بعد مواعيد العمل الرسمية (2:00 ص).`,
+            422
+          );
+        }
+      }
+    } else if (legacySettings) {
+      // Fallback to legacy global settings if operational_control not yet initialized
+      if (legacySettings['is_website_open'] === false) {
+        throw new OrderValidationError(
+          legacySettings['closed_message'] || 'المطعم مغلق حالياً، نعتذر عن استقبال الطلبات.',
+          422
+        );
+      }
+      const branches = legacySettings['branches'] as Record<string, any> | undefined;
       const branchConfig = branches?.[input.branch];
       if (branchConfig && branchConfig['is_open'] === false) {
         throw new OrderValidationError(`نعتذر، ${input.branch} مغلق حالياً.`, 422);
       }
     }
+
+    const settings = legacySettings;
 
     // 6. Fetch products, options, and menu availability authoritatively from Firestore
     const productIds = Array.from(new Set(input.items.map((i) => i.product_id)));

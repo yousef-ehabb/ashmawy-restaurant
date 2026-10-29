@@ -7,9 +7,11 @@ import crispyImg from "@/assets/crepe-crispy.jpg";
 import logo from "@/assets/ashmawy-logo.png.asset.json";
 import { restaurant } from "@/config/restaurant";
 import { ProductCard } from "@/components/site/ProductCard";
+import { StoreClosedScreen } from "@/components/site/StoreClosedScreen";
 import { useProducts } from "@/hooks/useProducts";
 import { useCategories } from "@/hooks/useCategories";
 import { useRestaurantSettings } from "@/hooks/useRestaurantSettings";
+import { useOperationalControl } from "@/hooks/useOperationalControl";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -26,6 +28,22 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const { isStoreAccessible, settings } = useOperationalControl();
+
+  if (!isStoreAccessible) {
+    const isAllBranchesClosed =
+      settings.isSiteOpen &&
+      Object.keys(settings.branches || {}).length > 0 &&
+      !Object.values(settings.branches).some((b) => b.isOpen);
+
+    return (
+      <StoreClosedScreen
+        customMessage={settings.globalClosedMessage}
+        isAllBranchesClosed={isAllBranchesClosed}
+      />
+    );
+  }
+
   return (
     <div id="top">
       <Hero />

@@ -20,6 +20,8 @@ import { restaurant } from "@/config/restaurant";
 import { submitOrderToApi, type CreateOrderResponse } from "@/lib/order-api";
 import { QtyControl } from "@/components/site/CartDrawer";
 import { useRestaurantSettings } from "@/hooks/useRestaurantSettings";
+import { useOperationalControl } from "@/hooks/useOperationalControl";
+import { StoreClosedScreen } from "@/components/site/StoreClosedScreen";
 
 export const Route = createFileRoute("/checkout")({
   head: () => ({
@@ -54,6 +56,7 @@ const LAST_ORDER_KEY = "ashmawy_last_confirmed_order";
 function Checkout() {
   const { lines, subtotal, setQty, clear } = useCart();
   const { minOrderAmount, deliveryFee: defaultDeliveryFee, branches: settingsBranches } = useRestaurantSettings();
+  const { isStoreAccessible, settings: opSettings, checkBranch } = useOperationalControl();
 
   const [form, setForm] = useState<{
     name: string;
@@ -107,6 +110,11 @@ function Checkout() {
     }
     if (!form.branch) {
       e.branch = "برجاء اختيار الفرع";
+    } else {
+      const branchStatus = checkBranch(form.branch);
+      if (!branchStatus.isOpen) {
+        e.branch = branchStatus.reason || `نعتذر، ${form.branch} مغلق حالياً ولا يمكن استقبال طلبات له.`;
+      }
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -126,6 +134,13 @@ function Checkout() {
     const minOrder = minOrderAmount || 50;
     if (subtotal < minOrder) {
       setSubmitError(`الحد الأدنى للطلب هو ${minOrder} ج.م (مجموعك الحالي: ${subtotal} ج.م).`);
+      return;
+    }
+
+    // Check branch open status before submitting
+    const currentBranchStatus = checkBranch(form.branch);
+    if (!currentBranchStatus.isOpen) {
+      setSubmitError(currentBranchStatus.reason || `نعتذر، ${form.branch} مغلق حالياً.`);
       return;
     }
 
@@ -317,6 +332,21 @@ function Checkout() {
     );
   }
 
+  // STORE CLOSED SCREEN (if website closed or all branches closed)
+  if (!isStoreAccessible && !confirmedOrder) {
+    const isAllBranchesClosed =
+      opSettings.isSiteOpen &&
+      Object.keys(opSettings.branches || {}).length > 0 &&
+      !Object.values(opSettings.branches).some((b) => b.isOpen);
+
+    return (
+      <StoreClosedScreen
+        customMessage={opSettings.globalClosedMessage}
+        isAllBranchesClosed={isAllBranchesClosed}
+      />
+    );
+  }
+
   // EMPTY CART SCREEN
   if (lines.length === 0) {
     return (
@@ -388,9 +418,27 @@ function Checkout() {
               value={form.branch}
               onChange={(e) => set("branch", e.target.value as "فرع المطار" | "فرع المحطة")}
             >
-              <option value="فرع المطار">فرع المطار – طريق المطار، أسوان</option>
-              <option value="فرع المحطة">فرع المحطة – ميدان المحطة، أسوان</option>
+              {restaurant.branches.map((b) => {
+                const bStatus = checkBranch(b.label);
+                return (
+                  <option key={b.label} value={b.label}>
+                    {b.label} {bStatus.isOpen ? "— متاح للطلبات" : "— (مغلق حالياً)"}
+                  </option>
+                );
+              })}
             </select>
+            {(() => {
+              const selectedBranchStatus = checkBranch(form.branch);
+              if (!selectedBranchStatus.isOpen) {
+                return (
+                  <div className="mt-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs font-bold text-destructive flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{selectedBranchStatus.reason || `${form.branch} مغلق حالياً، يرجى اختيار فرع آخر.`}</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             {errors.branch && <p className="mt-1 text-sm text-destructive">{errors.branch}</p>}
           </div>
 

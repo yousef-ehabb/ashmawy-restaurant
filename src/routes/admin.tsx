@@ -20,6 +20,11 @@ import { db, auth, isFirebaseConfigured } from "@/lib/firebase";
 import { formatEGP, products as menuProducts, extrasList, categories as menuCategories } from "@/data/menu";
 import { restaurant } from "@/config/restaurant";
 import {
+  DEFAULT_OPERATIONAL_SETTINGS,
+  type OperationalControlSettings,
+  isWithinCairoShift,
+} from "@/types/operational";
+import {
   LayoutDashboard,
   LogOut,
   Bell,
@@ -60,6 +65,9 @@ import {
   Layers,
   Flame,
   RefreshCw,
+  SlidersHorizontal,
+  Power,
+  ShieldAlert,
 } from "lucide-react";
 import {
   Sheet,
@@ -251,7 +259,7 @@ function AdminDashboard() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<"orders" | "menu" | "analytics">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "menu" | "analytics" | "operations">("orders");
 
   const initialLoadRef = useRef(true);
   const prevOrderCountRef = useRef(0);
@@ -607,6 +615,17 @@ function AdminDashboard() {
             <TrendingUp className="h-4 w-4" />
             الإحصائيات والمبيعات
           </button>
+          <button
+            onClick={() => setActiveTab("operations")}
+            className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition ${
+              activeTab === "operations"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+            }`}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            التحكم التشغيلي
+          </button>
         </div>
 
         {/* ERROR NOTIFICATION */}
@@ -635,8 +654,10 @@ function AdminDashboard() {
           />
         ) : activeTab === "menu" ? (
           <MenuAvailabilityView user={user} />
-        ) : (
+        ) : activeTab === "analytics" ? (
           <SalesAnalyticsView orders={orders} />
+        ) : (
+          <OperationalControlView user={user} />
         )}
       </div>
     </div>
@@ -1947,6 +1968,502 @@ function ExtrasSheet({
     </Sheet>
   );
 }
+
+// ─────────────────────────────────────────────
+// OPERATIONAL CONTROL VIEW (التحكم التشغيلي)
+// ─────────────────────────────────────────────
+function OperationalControlView({ user }: { user: User | null }) {
+  const [settings, setSettings] = useState<OperationalControlSettings>(DEFAULT_OPERATIONAL_SETTINGS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isShiftActive, setIsShiftActive] = useState(() => isWithinCairoShift());
+
+  // Check shift every 30 seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIsShiftActive(isWithinCairoShift());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch operational settings from backend
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings/operational");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.settings) {
+          setSettings(data.settings);
+        }
+      }
+    } catch (err) {
+      console.warn("[OperationalControlView] Failed to fetch settings:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  // Real-time listener via client Firestore if available
+  useEffect(() => {
+    if (!isFirebaseConfigured() || !db) return;
+    try {
+      const docRef = doc(db, "settings", "operational_control");
+      const unsub = onSnapshot(
+        docRef,
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as OperationalControlSettings;
+            setSettings((prev) => ({
+              ...prev,
+              ...data,
+              branches: {
+                ...prev.branches,
+                ...(data.branches || {}),
+              },
+            }));
+          }
+        },
+        (err) => {
+          console.debug("[OperationalControlView] Snapshot listener fallback:", err.message);
+        }
+      );
+      return () => unsub();
+    } catch {
+      return;
+    }
+  }, []);
+
+  // Save changes to backend
+  const handleSaveSettings = async (updatedSettings: OperationalControlSettings) => {
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
+    try {
+      const token = user ? await user.getIdToken() : "";
+      const res = await fetch("/api/admin/settings/operational", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(updatedSettings),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "فشل حفظ التغييرات");
+      }
+
+      setSettings(data.settings);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error("[OperationalControlView] Save failed:", err);
+      setSaveError(err.message || "حدث خطأ أثناء حفظ الإعدادات");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Toggle master site status
+  const handleToggleSiteOpen = () => {
+    const updated: OperationalControlSettings = {
+      ...settings,
+      isSiteOpen: !settings.isSiteOpen,
+    };
+    setSettings(updated);
+    handleSaveSettings(updated);
+  };
+
+  // Toggle specific branch manual status
+  const handleToggleBranchOpen = (branchName: string) => {
+    const current = settings.branches?.[branchName] || DEFAULT_OPERATIONAL_SETTINGS.branches[branchName] || {
+      isOpen: true,
+      autoCloseAfterHours: true,
+      closedMessage: "",
+    };
+    const updated: OperationalControlSettings = {
+      ...settings,
+      branches: {
+        ...settings.branches,
+        [branchName]: {
+          ...current,
+          isOpen: !current.isOpen,
+        },
+      },
+    };
+    setSettings(updated);
+    handleSaveSettings(updated);
+  };
+
+  // Toggle auto-close after hours
+  const handleToggleAutoClose = (branchName: string) => {
+    const current = settings.branches?.[branchName] || DEFAULT_OPERATIONAL_SETTINGS.branches[branchName] || {
+      isOpen: true,
+      autoCloseAfterHours: true,
+      closedMessage: "",
+    };
+    const updated: OperationalControlSettings = {
+      ...settings,
+      branches: {
+        ...settings.branches,
+        [branchName]: {
+          ...current,
+          autoCloseAfterHours: !current.autoCloseAfterHours,
+        },
+      },
+    };
+    setSettings(updated);
+    handleSaveSettings(updated);
+  };
+
+  // Update per-branch closed message
+  const handleUpdateBranchMessage = (branchName: string, message: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      branches: {
+        ...prev.branches,
+        [branchName]: {
+          ...(prev.branches?.[branchName] || {
+            isOpen: true,
+            autoCloseAfterHours: true,
+            closedMessage: "",
+          }),
+          closedMessage: message,
+        },
+      },
+    }));
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const branchKeys = ["فرع المطار", "فرع المحطة"];
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300" dir="rtl">
+      {/* 1. TAB HEADER */}
+      <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <SlidersHorizontal className="h-6 w-6 text-primary" />
+            التحكم التشغيلي العام والفروع
+          </h2>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+            إدارة حالة الموقع العام، وتشغيل الفروع المستقل، ومواعيد العمل الرسمية
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {saveSuccess && (
+            <span className="flex items-center gap-1.5 rounded-xl bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600 animate-in fade-in">
+              <CheckCircle className="h-4 w-4" />
+              تم حفظ التغييرات بنجاح
+            </span>
+          )}
+          {saveError && (
+            <span className="flex items-center gap-1.5 rounded-xl bg-destructive/10 px-3 py-1.5 text-xs font-bold text-destructive animate-in fade-in">
+              <AlertTriangle className="h-4 w-4" />
+              {saveError}
+            </span>
+          )}
+          <button
+            onClick={() => handleSaveSettings(settings)}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs sm:text-sm font-bold text-primary-foreground shadow-pop hover:bg-primary-deep transition disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            حفظ كافة التعديلات
+          </button>
+        </div>
+      </div>
+
+      {/* 2. SHIFT STATUS & WORKING HOURS BANNER */}
+      <div className={`rounded-2xl border p-4 sm:p-5 shadow-sm transition ${
+        isShiftActive
+          ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-950 dark:text-emerald-100"
+          : "border-amber-500/30 bg-amber-500/5 text-amber-950 dark:text-amber-100"
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm ${
+              isShiftActive
+                ? "bg-emerald-500 text-white"
+                : "bg-amber-500 text-white"
+            }`}>
+              <Clock className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-base sm:text-lg">
+                  وقت الوردية: {settings.workingHours?.label || "من 12:00 ظهراً حتى 2:00 صباحاً"}
+                </span>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                  isShiftActive
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                }`}>
+                  <span className={`h-2 w-2 rounded-full ${isShiftActive ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
+                  {isShiftActive ? "وقت الوردية — يمكن فتح الفروع يدوياً الآن" : "خارج أوقات الوردية الرسمية"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                {isShiftActive
+                  ? "المطعم حالياً داخل نطاق ساعات العمل الرسمية بتوقيت القاهرة. يمكنك فتح الفروع أو إغلاقها حسب ضغط التشغيل."
+                  : "المطعم حالياً بعد الساعة 2:00 صباحاً وقبل 12:00 ظهراً. الفروع ذات الإغلاق التلقائي تكون مغلقة آلياً للعملاء ما لم تقم بفتحها يدوياً."}
+              </p>
+            </div>
+          </div>
+
+          <div className="shrink-0 flex items-center gap-2 text-xs font-mono font-bold bg-card border border-border/80 rounded-xl px-3 py-2">
+            <Clock className="h-4 w-4 text-primary" />
+            <span>وردية 12 م – 2 ص (توقيت القاهرة)</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. GLOBAL WEBSITE STATUS CARD */}
+      <div className={`rounded-3xl border p-5 sm:p-7 shadow-card transition ${
+        settings.isSiteOpen
+          ? "border-emerald-500/30 bg-card ring-1 ring-emerald-500/10"
+          : "border-destructive/40 bg-card ring-1 ring-destructive/10"
+      }`}>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 border-b border-border pb-6">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2.5">
+              <span className={`flex h-3.5 w-3.5 rounded-full ${settings.isSiteOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive"}`} />
+              <h3 className="font-display text-xl sm:text-2xl font-bold">
+                حالة الموقع العامة - كافة الفروع
+              </h3>
+              <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${
+                settings.isSiteOpen
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                  : "bg-destructive/15 text-destructive border border-destructive/30"
+              }`}>
+                {settings.isSiteOpen ? "الموقع مفتوح" : "الموقع مغلق"}
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+              {settings.isSiteOpen
+                ? "الموقع مفتوح بالكامل للطلبات - العملاء يمكنهم تقديم طلبات جديدة في أي فرع مفتوح."
+                : "الموقع مغلق بالكامل - يتم إظهار شاشة الإغلاق التلقائية الفورية لكافة الزوار على المتجر وصفحة الدفع."}
+            </p>
+          </div>
+
+          {/* Master Toggle Button */}
+          <button
+            onClick={handleToggleSiteOpen}
+            disabled={saving}
+            className={`flex items-center justify-center gap-2 rounded-2xl px-6 py-3.5 text-sm font-extrabold shadow-pop transition disabled:opacity-50 ${
+              settings.isSiteOpen
+                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                : "bg-emerald-600 text-white hover:bg-emerald-700"
+            }`}
+          >
+            {saving ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : settings.isSiteOpen ? (
+              <>
+                <Power className="h-5 w-5" />
+                إغلاق الموقع العام الآن
+              </>
+            ) : (
+              <>
+                <CheckCircle className="h-5 w-5" />
+                فتح الموقع العام للطلبات
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Custom Global Closed Message Input */}
+        <div className="mt-5 space-y-2">
+          <label className="block text-xs sm:text-sm font-bold text-foreground">
+            رسالة إغلاق الموقع العامة (تظهر عند إغلاق المطعم كلياً):
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <textarea
+              rows={2}
+              value={settings.globalClosedMessage}
+              onChange={(e) => setSettings({ ...settings, globalClosedMessage: e.target.value })}
+              placeholder="اكتب رسالة الإغلاق التي ستظهر للعملاء..."
+              className="flex-1 rounded-2xl border border-input bg-secondary/40 px-4 py-2.5 text-xs sm:text-sm outline-none focus:border-primary focus:bg-card transition"
+            />
+            <button
+              onClick={() => handleSaveSettings(settings)}
+              disabled={saving}
+              className="shrink-0 rounded-2xl border border-primary/30 bg-primary/10 px-5 py-2.5 text-xs font-bold text-primary hover:bg-primary hover:text-primary-foreground transition disabled:opacity-50 sm:self-stretch"
+            >
+              تحديث الرسالة
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            القيمة الافتراضية: "المطعم مغلق حالياً، نسعد باستقبال طلباتكم في أوقات العمل القادمة ❤️"
+          </p>
+        </div>
+      </div>
+
+      {/* 4. INDEPENDENT BRANCH CONTROL SECTION */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="font-display text-lg sm:text-xl font-bold flex items-center gap-2">
+            <Store className="h-5 w-5 text-primary" />
+            تشغيل الفروع المستقل
+          </h3>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+            يمكن فتح أو إغلاق أي فرع بشكل مستقل مع تخصيص رسالة إغلاق لكل فرع
+          </p>
+        </div>
+
+        {/* 2-Column RTL Grid for Branches */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {branchKeys.map((branchName) => {
+            const branchConfig = settings.branches?.[branchName] || DEFAULT_OPERATIONAL_SETTINGS.branches[branchName] || {
+              isOpen: true,
+              autoCloseAfterHours: true,
+              closedMessage: `${branchName} مغلق حالياً، نسعد باستقبال طلباتكم في أوقات العمل القادمة.`,
+            };
+
+            const branchAddress =
+              restaurant.branches.find((b) => b.label === branchName)?.address || "أسوان";
+
+            return (
+              <div
+                key={branchName}
+                className={`flex flex-col justify-between rounded-3xl border bg-card p-5 sm:p-6 shadow-card transition ${
+                  branchConfig.isOpen
+                    ? "border-border hover:border-primary/40"
+                    : "border-destructive/30 bg-destructive/5"
+                }`}
+              >
+                <div>
+                  {/* Branch Header */}
+                  <div className="flex items-center justify-between border-b border-border pb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                        branchConfig.isOpen
+                          ? "bg-primary/10 text-primary"
+                          : "bg-destructive/10 text-destructive"
+                      }`}>
+                        <Store className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-base sm:text-lg">{branchName}</h4>
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {branchAddress}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold border ${
+                        branchConfig.isOpen
+                          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+                          : "bg-destructive/10 text-destructive border-destructive/30"
+                      }`}>
+                        {branchConfig.isOpen ? "مفتوح" : "مغلق"}
+                      </span>
+
+                      {/* Manual Toggle Button */}
+                      <button
+                        onClick={() => handleToggleBranchOpen(branchName)}
+                        disabled={saving}
+                        className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition shadow-xs disabled:opacity-50 ${
+                          branchConfig.isOpen
+                            ? "border border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive hover:text-white"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
+                        }`}
+                      >
+                        {branchConfig.isOpen ? "إغلاق" : "فتح"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Auto-Close After Working Hours Box (2:00 ص) */}
+                  <div className="mt-4 rounded-2xl border border-border/80 bg-secondary/50 p-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="text-xs font-bold text-foreground">
+                          الإغلاق التلقائي بعد مواعيد العمل 2:00 ص
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                          branchConfig.autoCloseAfterHours
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : "bg-muted text-muted-foreground"
+                        }`}>
+                          {branchConfig.autoCloseAfterHours ? "مفعل" : "معطل"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAutoClose(branchName)}
+                          disabled={saving}
+                          className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
+                            branchConfig.autoCloseAfterHours
+                              ? "border border-border bg-card text-foreground hover:bg-secondary"
+                              : "bg-primary text-primary-foreground hover:bg-primary-deep"
+                          }`}
+                        >
+                          {branchConfig.autoCloseAfterHours ? "إيقاف" : "تفعيل"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                      عند التفعيل، يتم إغلاق الفرع تلقائياً الساعة 2:00 صباحاً وحتى تقوم بفتحه يدوياً. عند الإيقاف، يظل الفرع مفتوحاً أو تحت التحكم اليدوي الكامل.
+                    </p>
+                  </div>
+
+                  {/* Per-Branch Closed Message Input */}
+                  <div className="mt-4 space-y-1.5">
+                    <label className="block text-xs font-bold text-foreground">
+                      رسالة إغلاق الفرع:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={branchConfig.closedMessage}
+                      onChange={(e) => handleUpdateBranchMessage(branchName, e.target.value)}
+                      placeholder={`رسالة تظهر للعميل عند محاولة اختيار ${branchName}...`}
+                      className="w-full rounded-xl border border-input bg-card px-3 py-2 text-xs outline-none focus:border-primary transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Footer Save for Branch */}
+                <div className="mt-4 pt-3 border-t border-border flex justify-end">
+                  <button
+                    onClick={() => handleSaveSettings(settings)}
+                    disabled={saving}
+                    className="rounded-xl border border-border bg-secondary px-3.5 py-1.5 text-xs font-bold text-foreground hover:border-primary transition disabled:opacity-50"
+                  >
+                    حفظ إعدادات {branchName}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ─────────────────────────────────────────────
 // ADMIN LOGIN COMPONENT

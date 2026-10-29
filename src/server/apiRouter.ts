@@ -7,6 +7,10 @@ import {
 } from './orderService';
 import { verifyAdminRequest } from './auth';
 import { getFirebaseAdmin } from './firebaseAdmin';
+import {
+  DEFAULT_OPERATIONAL_SETTINGS,
+  type OperationalControlSettings,
+} from '../types/operational';
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -358,7 +362,150 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }
   }
 
-  // 7. Insecure / Deprecated authorize endpoint: POST /api/admin/authorize -> Disabled
+  // 7. Operational Settings Public Endpoint: GET /api/settings/operational
+  if (pathname === '/api/settings/operational') {
+    if (method !== 'GET') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+
+    try {
+      const { adminDb } = getFirebaseAdmin();
+      const opDoc = await adminDb.collection('settings').doc('operational_control').get();
+
+      if (!opDoc.exists) {
+        // Return default operational settings if not initialized yet
+        return jsonResponse(
+          {
+            success: true,
+            settings: DEFAULT_OPERATIONAL_SETTINGS,
+            isDefault: true,
+          },
+          200
+        );
+      }
+
+      const data = opDoc.data() as OperationalControlSettings;
+      const branchesData = data.branches || {};
+      const defMatar = DEFAULT_OPERATIONAL_SETTINGS.branches["فرع المطار"]!;
+      const defMahatta = DEFAULT_OPERATIONAL_SETTINGS.branches["فرع المحطة"]!;
+
+      // Merge with default to guarantee all expected fields exist
+      const mergedSettings: OperationalControlSettings = {
+        isSiteOpen: data.isSiteOpen ?? DEFAULT_OPERATIONAL_SETTINGS.isSiteOpen,
+        globalClosedMessage: data.globalClosedMessage || DEFAULT_OPERATIONAL_SETTINGS.globalClosedMessage,
+        workingHours: {
+          start: data.workingHours?.start || DEFAULT_OPERATIONAL_SETTINGS.workingHours.start,
+          end: data.workingHours?.end || DEFAULT_OPERATIONAL_SETTINGS.workingHours.end,
+          label: data.workingHours?.label || DEFAULT_OPERATIONAL_SETTINGS.workingHours.label,
+        },
+        branches: {
+          "فرع المطار": {
+            isOpen: branchesData["فرع المطار"]?.isOpen ?? defMatar.isOpen,
+            autoCloseAfterHours: branchesData["فرع المطار"]?.autoCloseAfterHours ?? defMatar.autoCloseAfterHours,
+            closedMessage: branchesData["فرع المطار"]?.closedMessage || defMatar.closedMessage,
+          },
+          "فرع المحطة": {
+            isOpen: branchesData["فرع المحطة"]?.isOpen ?? defMahatta.isOpen,
+            autoCloseAfterHours: branchesData["فرع المحطة"]?.autoCloseAfterHours ?? defMahatta.autoCloseAfterHours,
+            closedMessage: branchesData["فرع المحطة"]?.closedMessage || defMahatta.closedMessage,
+          },
+        },
+        updatedAt: data.updatedAt,
+        updatedBy: data.updatedBy,
+      };
+
+      return jsonResponse({ success: true, settings: mergedSettings }, 200);
+    } catch (err: any) {
+      console.error('[API /api/settings/operational] Error:', err);
+      // Fallback gracefully to default settings on error
+      return jsonResponse({ success: true, settings: DEFAULT_OPERATIONAL_SETTINGS, fallback: true }, 200);
+    }
+  }
+
+  // 8. Admin Operational Settings Management: POST /api/admin/settings/operational
+  if (pathname === '/api/admin/settings/operational') {
+    if (method !== 'POST') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+
+    const authResult = await verifyAdminRequest(request);
+    if (!authResult.authorized) {
+      return jsonResponse({ success: false, error: authResult.error }, authResult.statusCode);
+    }
+
+    try {
+      const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+      const { adminDb, FieldValue } = getFirebaseAdmin();
+      const opRef = adminDb.collection('settings').doc('operational_control');
+
+      const existingDoc = await opRef.get();
+      const existingData = existingDoc.exists ? (existingDoc.data() as OperationalControlSettings) : DEFAULT_OPERATIONAL_SETTINGS;
+      const existingBranches = existingData.branches || DEFAULT_OPERATIONAL_SETTINGS.branches;
+      const fallbackMatar = DEFAULT_OPERATIONAL_SETTINGS.branches["فرع المطار"]!;
+      const fallbackMahatta = DEFAULT_OPERATIONAL_SETTINGS.branches["فرع المحطة"]!;
+
+      // Prepare updated payload
+      const updatedSettings: OperationalControlSettings = {
+        isSiteOpen: typeof body['isSiteOpen'] === 'boolean' ? body['isSiteOpen'] : existingData.isSiteOpen,
+        globalClosedMessage: typeof body['globalClosedMessage'] === 'string' && body['globalClosedMessage'].trim()
+          ? body['globalClosedMessage'].trim()
+          : existingData.globalClosedMessage,
+        workingHours: {
+          start: body['workingHours']?.start || existingData.workingHours.start,
+          end: body['workingHours']?.end || existingData.workingHours.end,
+          label: body['workingHours']?.label || existingData.workingHours.label,
+        },
+        branches: {
+          "فرع المطار": {
+            isOpen: typeof body['branches']?.["فرع المطار"]?.isOpen === 'boolean'
+              ? body['branches']["فرع المطار"].isOpen
+              : (existingBranches["فرع المطار"]?.isOpen ?? fallbackMatar.isOpen),
+            autoCloseAfterHours: typeof body['branches']?.["فرع المطار"]?.autoCloseAfterHours === 'boolean'
+              ? body['branches']["فرع المطار"].autoCloseAfterHours
+              : (existingBranches["فرع المطار"]?.autoCloseAfterHours ?? fallbackMatar.autoCloseAfterHours),
+            closedMessage: body['branches']?.["فرع المطار"]?.closedMessage?.trim() ||
+              (existingBranches["فرع المطار"]?.closedMessage || fallbackMatar.closedMessage),
+          },
+          "فرع المحطة": {
+            isOpen: typeof body['branches']?.["فرع المحطة"]?.isOpen === 'boolean'
+              ? body['branches']["فرع المحطة"].isOpen
+              : (existingBranches["فرع المحطة"]?.isOpen ?? fallbackMahatta.isOpen),
+            autoCloseAfterHours: typeof body['branches']?.["فرع المحطة"]?.autoCloseAfterHours === 'boolean'
+              ? body['branches']["فرع المحطة"].autoCloseAfterHours
+              : (existingBranches["فرع المحطة"]?.autoCloseAfterHours ?? fallbackMahatta.autoCloseAfterHours),
+            closedMessage: body['branches']?.["فرع المحطة"]?.closedMessage?.trim() ||
+              (existingBranches["فرع المحطة"]?.closedMessage || fallbackMahatta.closedMessage),
+          },
+        },
+        updatedAt: new Date().toISOString(),
+        updatedBy: authResult.user?.email || authResult.user?.uid || 'admin',
+      };
+
+      await opRef.set({
+        ...updatedSettings,
+        serverTimestamp: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      // Also mirror the master is_website_open flag to legacy settings/global for backward compatibility
+      try {
+        const legacyRef = adminDb.collection('settings').doc('global');
+        await legacyRef.set({
+          is_website_open: updatedSettings.isSiteOpen,
+          closed_message: updatedSettings.globalClosedMessage,
+          updated_at: new Date().toISOString(),
+        }, { merge: true });
+      } catch (mirrorErr) {
+        console.warn('[API /api/admin/settings/operational] Mirroring to legacy doc failed:', mirrorErr);
+      }
+
+      return jsonResponse({ success: true, settings: updatedSettings }, 200);
+    } catch (err: any) {
+      console.error('[API /api/admin/settings/operational] Error:', err);
+      return jsonResponse({ success: false, error: err.message || 'Internal server error' }, 500);
+    }
+  }
+
+  // 9. Insecure / Deprecated authorize endpoint: POST /api/admin/authorize -> Disabled
   if (pathname === '/api/admin/authorize') {
     return jsonResponse(
       {
@@ -369,6 +516,6 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     );
   }
 
-  // 8. Fallback for undefined /api/* routes
+  // 10. Fallback for undefined /api/* routes
   return jsonResponse({ success: false, error: `API route not found: ${pathname}` }, 404);
 }
