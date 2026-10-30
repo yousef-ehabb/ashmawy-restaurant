@@ -1,15 +1,21 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { getFirebaseAdmin } from '../server/firebaseAdmin';
 import { processCreateOrder, OrderValidationError } from '../server/orderService';
 import { DEFAULT_OPERATIONAL_SETTINGS } from '../types/operational';
+import { TestDocumentTracker } from './testCleanup';
 
-// Ensure tests communicate with the local emulator
+// Ensure tests communicate with the local emulator in an isolated namespace
 process.env['FIRESTORE_EMULATOR_HOST'] = '127.0.0.1:8081';
-process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-ordering';
+process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-test-suite';
 
 describe('Authoritative Server-Side Order Creation Engine', () => {
+  const tracker = new TestDocumentTracker();
+
   beforeAll(async () => {
     const { adminDb } = getFirebaseAdmin();
+
+    // Verify isolation: must never connect to live production or default dev project
+    expect(adminDb.projectId).toBe('ashmawy-test-suite');
 
     // 0. Seed Operational Control Settings to ensure branches are open
     await adminDb.collection('settings').doc('operational_control').set({
@@ -116,6 +122,20 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
         'فرع المحطة': true,
       },
     });
+
+    tracker.trackDoc('settings', 'operational_control');
+    tracker.trackDoc('settings', 'global');
+    tracker.trackDoc('counters', 'order_counter');
+    tracker.trackDoc('products', 'test_crepe');
+    tracker.trackDoc('products', 'test_inactive_crepe');
+    tracker.trackDoc('products', 'test_unavailable_crepe');
+    tracker.trackDoc('options', 'test_crepe_size_large');
+    tracker.trackDoc('options', 'test_crepe_extra_cheese');
+  });
+
+  afterAll(async () => {
+    const { adminDb } = getFirebaseAdmin();
+    await tracker.cleanup(adminDb);
   });
 
   it('authoritatively calculates prices and creates order with sequential numbering', async () => {
@@ -141,6 +161,7 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
     };
 
     const res = await processCreateOrder(input);
+    tracker.trackOrder(res.orderId, input.idempotency_key);
 
     expect(res.success).toBe(true);
     // 115 * 2 = 230
@@ -178,6 +199,7 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
     };
 
     const res = await processCreateOrder(input);
+    tracker.trackOrder(res.orderId, input.idempotency_key);
     expect(res.success).toBe(true);
     expect(res.orderNumber).toBe(2002);
     // Pickup order has 0 delivery fee
@@ -204,6 +226,7 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
 
     // First attempt creates order
     const firstResult = await processCreateOrder(input);
+    tracker.trackOrder(firstResult.orderId, idempotencyKey);
     expect(firstResult.success).toBe(true);
     const originalOrderNumber = firstResult.orderNumber;
     const originalOrderId = firstResult.orderId;
@@ -329,6 +352,7 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
     };
 
     const res = await processCreateOrder(input);
+    tracker.trackOrder(res.orderId, input.idempotency_key);
     const { adminDb } = getFirebaseAdmin();
     const orderDocRef = adminDb.collection('orders').doc(res.orderId);
 
@@ -362,6 +386,7 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
       items: [{ product_id: 'test_crepe', quantity: 1 }],
     };
     const res1 = await processCreateOrder(order1);
+    tracker.trackOrder(res1.orderId, key);
     expect(res1.success).toBe(true);
 
     // Another customer attempts to submit with the same key

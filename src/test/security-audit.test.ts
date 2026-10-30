@@ -4,12 +4,14 @@ import * as path from 'path';
 import { handleApiRequest } from '../server/apiRouter';
 import { setTokenVerifierForTesting } from '../server/auth';
 import { getFirebaseAdmin } from '../server/firebaseAdmin';
+import { TestDocumentTracker } from './testCleanup';
 
 process.env['FIRESTORE_EMULATOR_HOST'] = '127.0.0.1:8081';
-process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-ordering';
+process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-test-suite';
 
 describe('Admin API Security & Authentication', () => {
   let createdOrderId = '';
+  const tracker = new TestDocumentTracker();
 
   beforeEach(() => {
     setTokenVerifierForTesting(null);
@@ -17,9 +19,13 @@ describe('Admin API Security & Authentication', () => {
 
   beforeAll(async () => {
     const { adminDb } = getFirebaseAdmin();
+    expect(adminDb.projectId).toBe('ashmawy-test-suite');
+
     // Seed an order for update tests
     const orderRef = adminDb.collection('orders').doc();
     createdOrderId = orderRef.id;
+    tracker.trackOrder(createdOrderId);
+
     await orderRef.set({
       id: createdOrderId,
       order_number: 9999,
@@ -36,8 +42,10 @@ describe('Admin API Security & Authentication', () => {
     });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     setTokenVerifierForTesting(null);
+    const { adminDb } = getFirebaseAdmin();
+    await tracker.cleanup(adminDb);
   });
 
   // 1. Request without credentials -> 401

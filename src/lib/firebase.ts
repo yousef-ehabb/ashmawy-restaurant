@@ -15,7 +15,10 @@ import { getAuth, type Auth } from 'firebase/auth';
 export const firebaseConfig = {
   apiKey: (import.meta.env['VITE_FIREBASE_API_KEY'] as string | undefined) || 'AIzaSyAByIgIA-PXP4dfDavJieB3T2yAIdDu6vE',
   authDomain: (import.meta.env['VITE_FIREBASE_AUTH_DOMAIN'] as string | undefined) || 'ashmawy-ordering.firebaseapp.com',
-  projectId: (import.meta.env['VITE_FIREBASE_PROJECT_ID'] as string | undefined) || 'ashmawy-ordering',
+  projectId:
+    (import.meta.env['VITE_FIREBASE_PROJECT_ID'] as string | undefined) ||
+    (typeof process !== 'undefined' ? process.env['VITE_FIREBASE_PROJECT_ID'] || process.env['FIREBASE_PROJECT_ID'] : undefined) ||
+    'ashmawy-ordering',
   storageBucket: (import.meta.env['VITE_FIREBASE_STORAGE_BUCKET'] as string | undefined) || 'ashmawy-ordering.firebasestorage.app',
   messagingSenderId: (import.meta.env['VITE_FIREBASE_MESSAGING_SENDER_ID'] as string | undefined) || '76898297639',
   appId: (import.meta.env['VITE_FIREBASE_APP_ID'] as string | undefined) || '1:76898297639:web:ebc029a859f7e83ad42b02',

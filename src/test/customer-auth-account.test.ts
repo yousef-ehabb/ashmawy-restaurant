@@ -3,12 +3,14 @@ import { handleApiRequest } from '../server/apiRouter';
 import { setTokenVerifierForTesting, type TokenVerifier } from '../server/auth';
 import { getFirebaseAdmin } from '../server/firebaseAdmin';
 import { DEFAULT_OPERATIONAL_SETTINGS } from '../types/operational';
+import { TestDocumentTracker } from './testCleanup';
 
-// Point tests to local emulator
+// Point tests to local emulator in isolated namespace
 process.env['FIRESTORE_EMULATOR_HOST'] = '127.0.0.1:8081';
-process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-ordering';
+process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-test-suite';
 
 describe('Customer Authentication & Account System Tests', () => {
+  const tracker = new TestDocumentTracker();
   const customerA = {
     uid: 'customer_test_user_a',
     email: 'customera@test.com',
@@ -64,6 +66,9 @@ describe('Customer Authentication & Account System Tests', () => {
 
     const { adminDb } = getFirebaseAdmin();
 
+    // Verify isolation: must never connect to live production or default dev project
+    expect(adminDb.projectId).toBe('ashmawy-test-suite');
+
     // 0. Ensure branches are open in operational control
     await adminDb.collection('settings').doc('operational_control').set({
       ...DEFAULT_OPERATIONAL_SETTINGS,
@@ -80,6 +85,7 @@ describe('Customer Authentication & Account System Tests', () => {
         },
       },
     });
+    tracker.trackDoc('settings', 'operational_control');
 
     // 1. Seed global settings
     await adminDb.collection('settings').doc('global').set({
@@ -91,6 +97,7 @@ describe('Customer Authentication & Account System Tests', () => {
         'فرع المحطة': { is_open: true, delivery_fee: 20 },
       },
     });
+    tracker.trackDoc('settings', 'global');
 
     // 2. Seed test product
     await adminDb.collection('products').doc('auth_test_burger').set({
@@ -105,10 +112,16 @@ describe('Customer Authentication & Account System Tests', () => {
         'فرع المحطة': true,
       },
     });
+    tracker.trackDoc('products', 'auth_test_burger');
+    tracker.trackDoc('users', customerA.uid);
+    tracker.trackDoc('users', customerB.uid);
+    tracker.trackDoc('admins', adminUser.uid);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     setTokenVerifierForTesting(null);
+    const { adminDb } = getFirebaseAdmin();
+    await tracker.cleanup(adminDb);
   });
 
   // 1. Guest Completes Checkout Successfully
@@ -137,6 +150,7 @@ describe('Customer Authentication & Account System Tests', () => {
     const res = await handleApiRequest(req);
     expect(res.status).toBe(201);
     const body = await res.json();
+    tracker.trackOrder(body.orderId, guestPayload.idempotency_key);
     expect(body.success).toBe(true);
     expect(body.orderNumber).toBeGreaterThan(1000);
 
@@ -173,6 +187,7 @@ describe('Customer Authentication & Account System Tests', () => {
     const res = await handleApiRequest(req);
     expect(res.status).toBe(201);
     const body = await res.json();
+    tracker.trackOrder(body.orderId);
 
     const { adminDb } = getFirebaseAdmin();
     const orderDoc = await adminDb.collection('orders').doc(body.orderId).get();
@@ -230,6 +245,7 @@ describe('Customer Authentication & Account System Tests', () => {
     const res = await handleApiRequest(req);
     expect(res.status).toBe(201);
     const body = await res.json();
+    tracker.trackOrder(body.orderId, authOrderPayload.idempotency_key);
     expect(body.success).toBe(true);
 
     const { adminDb } = getFirebaseAdmin();
@@ -261,6 +277,7 @@ describe('Customer Authentication & Account System Tests', () => {
     const res = await handleApiRequest(req);
     expect(res.status).toBe(201);
     const body = await res.json();
+    tracker.trackOrder(body.orderId);
 
     const { adminDb } = getFirebaseAdmin();
     const orderDoc = await adminDb.collection('orders').doc(body.orderId).get();

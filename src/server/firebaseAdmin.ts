@@ -5,6 +5,19 @@ import type { App } from 'firebase-admin/app';
 
 let appInstance: App | null = null;
 
+export function resetFirebaseAdminForTesting(): void {
+  const firebase = (admin as any).default || admin;
+  const existingApps = firebase.apps;
+  if (existingApps && existingApps.length > 0) {
+    for (const app of [...existingApps]) {
+      try {
+        app.delete().catch(() => {});
+      } catch {}
+    }
+  }
+  appInstance = null;
+}
+
 export function isFirebaseAdminConfigured(): boolean {
   if (process.env['FIRESTORE_EMULATOR_HOST']) return true;
   if (process.env['FIREBASE_SERVICE_ACCOUNT_KEY']) return true;
@@ -19,16 +32,44 @@ export function getFirebaseAdmin(): {
   FieldValue: typeof FieldValue;
 } {
   const firebase = (admin as any).default || admin;
+  const isTestEnv = process.env['NODE_ENV'] === 'test' || Boolean(process.env['VITEST']);
+
+  // Production Safeguard: Never allow automated tests to initialize Firebase Admin without the emulator
+  if (isTestEnv && (!process.env['FIRESTORE_EMULATOR_HOST'] || process.env['FIRESTORE_EMULATOR_HOST'].trim() === '')) {
+    throw new Error(
+      'FATAL PRODUCTION SAFEGUARD: Automated tests attempted to initialize Firebase Admin SDK without FIRESTORE_EMULATOR_HOST. ' +
+      'Connecting to live production Firestore during tests is strictly forbidden.'
+    );
+  }
+
+  const expectedProjectId =
+    process.env['FIREBASE_PROJECT_ID'] ||
+    process.env['VITE_FIREBASE_PROJECT_ID'] ||
+    (isTestEnv ? 'ashmawy-test-suite' : 'ashmawy-ordering');
+
+  // Verify cached appInstance matches expectedProjectId; if not, discard and reset
+  if (appInstance && appInstance.options?.projectId !== expectedProjectId) {
+    try {
+      appInstance.delete().catch(() => {});
+    } catch {}
+    appInstance = null;
+  }
 
   if (!appInstance) {
     const existingApps = firebase.apps;
-    if (existingApps && existingApps.length > 0 && existingApps[0]) {
-      appInstance = existingApps[0];
-    } else {
-      const projectId =
-        process.env['FIREBASE_PROJECT_ID'] ||
-        process.env['VITE_FIREBASE_PROJECT_ID'] ||
-        'ashmawy-ordering';
+    const defaultApp = existingApps?.find((a: App) => a?.name === '[DEFAULT]');
+    if (defaultApp) {
+      if (defaultApp.options?.projectId === expectedProjectId) {
+        appInstance = defaultApp;
+      } else {
+        try {
+          defaultApp.delete().catch(() => {});
+        } catch {}
+      }
+    }
+
+    if (!appInstance) {
+      const projectId = expectedProjectId;
 
       // 1. Emulator mode
       if (process.env['FIRESTORE_EMULATOR_HOST']) {
