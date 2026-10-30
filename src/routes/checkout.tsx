@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -15,6 +15,7 @@ import {
   PackageSearch,
 } from "lucide-react";
 import { useCart, type CartLine } from "@/lib/cart";
+import { useMenuAvailability, isItemAvailable } from "@/hooks/useMenuAvailability";
 import { formatEGP } from "@/data/menu";
 import { restaurant } from "@/config/restaurant";
 import { submitOrderToApi, type CreateOrderResponse } from "@/lib/order-api";
@@ -60,6 +61,7 @@ function Checkout() {
   const { minOrderAmount, deliveryFee: defaultDeliveryFee, branches: settingsBranches } = useRestaurantSettings();
   const { isStoreAccessible, settings: opSettings, checkBranch } = useOperationalControl();
   const { user, profile, getIdToken, updateProfileData, openAuthModal } = useAuth();
+  const { availability } = useMenuAvailability();
 
   const [form, setForm] = useState<{
     name: string;
@@ -76,6 +78,19 @@ function Checkout() {
     branch: "فرع المطار",
     notes: "",
   });
+
+  // Validate cart items and extras against selected branch (declared AFTER form state to avoid TDZ ReferenceError)
+  const unavailableCartItems = useMemo(() => {
+    return lines.filter((line) => {
+      const itemAvail = availability.items[line.productId];
+      if (!isItemAvailable(itemAvail, form.branch)) return true;
+      for (const extra of line.extras) {
+        const extraAvail = availability.extras[extra.id];
+        if (!isItemAvailable(extraAvail, form.branch)) return true;
+      }
+      return false;
+    });
+  }, [lines, availability, form.branch]);
 
   const [saveToProfile, setSaveToProfile] = useState(true);
 
@@ -125,6 +140,11 @@ function Checkout() {
     if (form.orderType === "delivery" && form.address.trim().length < 5) {
       e.address = "من فضلك اكتب عنوان التوصيل بالتفصيل (الشارع والمنطقة)";
     }
+    if (unavailableCartItems.length > 0) {
+      const firstUnavail = unavailableCartItems[0];
+      const otherBranch = form.branch === 'فرع المحطة' ? 'فرع المطار' : 'فرع المحطة';
+      e.branch = `تنبيه: الصنف (${firstUnavail.nameAr}) غير متاح حالياً في ${form.branch}، يرجى تغييره أو اختيار ${otherBranch}`;
+    }
     if (!form.branch) {
       e.branch = "برجاء اختيار الفرع";
     } else {
@@ -145,6 +165,13 @@ function Checkout() {
 
     if (lines.length === 0) {
       setSubmitError("السلة فارغة. يرجى إضافة منتجات قبل إتمام الطلب.");
+      return;
+    }
+
+    if (unavailableCartItems.length > 0) {
+      const firstUnavail = unavailableCartItems[0];
+      const otherBranch = form.branch === 'فرع المحطة' ? 'فرع المطار' : 'فرع المحطة';
+      setSubmitError(`تنبيه: الصنف (${firstUnavail.nameAr}) غير متاح حالياً في ${form.branch}، يرجى تغييره أو اختيار ${otherBranch}`);
       return;
     }
 
@@ -520,6 +547,28 @@ function Checkout() {
               return null;
             })()}
             {errors.branch && <p className="mt-1 text-sm text-destructive">{errors.branch}</p>}
+            {unavailableCartItems.length > 0 && (
+              <div className="mt-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-3.5 text-xs font-bold text-destructive flex items-start gap-2.5 shadow-sm">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  {unavailableCartItems.map((item, idx) => {
+                    const otherBranch = form.branch === 'فرع المحطة' ? 'فرع المطار' : 'فرع المحطة';
+                    return (
+                      <p key={item.key || idx}>
+                        تنبيه: الصنف <b>({item.nameAr})</b> غير متاح حالياً في {form.branch}، يرجى تغييره أو اختيار {otherBranch}.
+                      </p>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => set('branch', form.branch === 'فرع المحطة' ? 'فرع المطار' : 'فرع المحطة')}
+                    className="mt-2 inline-flex items-center gap-1 rounded-full bg-destructive/20 hover:bg-destructive/30 px-3 py-1 text-xs text-destructive font-extrabold transition cursor-pointer"
+                  >
+                    التحويل إلى {form.branch === 'فرع المحطة' ? 'فرع المطار' : 'فرع المحطة'} مباشرة
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* CUSTOMER NAME */}

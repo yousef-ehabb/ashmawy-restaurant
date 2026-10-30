@@ -5,7 +5,7 @@ import {
   trackOrder,
   OrderValidationError,
 } from './orderService';
-import { verifyAdminRequest, verifyCustomerRequest, extractVerifiedCustomer } from './auth';
+import { verifyAdminRequest, verifyCustomerRequest, extractVerifiedCustomer, ensureAdminAccounts } from './auth';
 import { getFirebaseAdmin } from './firebaseAdmin';
 import {
   DEFAULT_OPERATIONAL_SETTINGS,
@@ -49,6 +49,31 @@ export async function handleApiRequest(request: Request): Promise<Response> {
   // Handle CORS preflight
   if (method === 'OPTIONS') {
     return handleCorsOptions();
+  }
+
+  // 0a. Admin Identity Me Endpoint: GET /api/admin/me
+  if (pathname === '/api/admin/me') {
+    if (method !== 'GET') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+    const authResult = await verifyAdminRequest(request);
+    if (!authResult.authorized) {
+      return jsonResponse({ success: false, error: authResult.error }, authResult.statusCode);
+    }
+    return jsonResponse({ success: true, admin: authResult.user }, 200);
+  }
+
+  // 0b. Admin Accounts Seed Endpoint: POST /api/admin/seed
+  if (pathname === '/api/admin/seed') {
+    if (method !== 'POST') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+    try {
+      await ensureAdminAccounts(true);
+      return jsonResponse({ success: true, message: 'Admin accounts ensured' }, 200);
+    } catch (err) {
+      return jsonResponse({ success: false, error: err?.message || 'Failed to seed accounts' }, 500);
+    }
   }
 
   // 1. Order Creation Endpoint: POST /api/orders/create
@@ -139,7 +164,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const { adminDb } = getFirebaseAdmin();
       const snapshot = await adminDb.collection('orders').get();
 
-      const orders = snapshot.docs.map((docSnap) => {
+      let orders = snapshot.docs.map((docSnap) => {
         const data = docSnap.data();
         return {
           id: docSnap.id,
@@ -160,10 +185,21 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         };
       });
 
+      // Role-based multi-branch scoping: If branch_admin, filter exclusively to assigned branch
+      if (authResult.user?.role === 'branch_admin' && authResult.user?.branch && authResult.user.branch !== 'all') {
+        const branchScope = authResult.user.branch;
+        orders = orders.filter((o) => o.branch === branchScope);
+      }
+
       // Sort descending by order_number
       orders.sort((a, b) => b.order_number - a.order_number);
 
-      return jsonResponse({ success: true, count: orders.length, orders }, 200);
+      return jsonResponse({
+        success: true,
+        count: orders.length,
+        orders,
+        admin: authResult.user,
+      }, 200);
     } catch (err: any) {
       console.error('[API /api/admin/orders] Error fetching orders:', err);
       return jsonResponse({ success: false, error: err.message || 'Internal server error' }, 500);
@@ -185,7 +221,12 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const body = (await request.json().catch(() => ({}))) as Record<string, any>;
       const { orderId, status, notes } = body;
 
-      const result = await processUpdateOrderStatus({ orderId, status, notes });
+      const allowedBranch =
+        authResult.user?.role === 'branch_admin' && authResult.user?.branch && authResult.user.branch !== 'all'
+          ? authResult.user.branch
+          : undefined;
+
+      const result = await processUpdateOrderStatus({ orderId, status, notes, allowedBranch });
       return jsonResponse(result, 200);
     } catch (err: any) {
       console.error('[API /api/admin/orders/update] Error updating order:', err);
@@ -211,7 +252,13 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const { adminDb } = getFirebaseAdmin();
 
       if (deleteAll === true || orderId === 'all') {
-        const snapshot = await adminDb.collection('orders').get();
+        // Multi-branch security: branch admins can ONLY clear orders belonging to their branch
+        let query: FirebaseFirestore.Query = adminDb.collection('orders');
+        if (authResult.user?.role === 'branch_admin' && authResult.user?.branch && authResult.user.branch !== 'all') {
+          query = query.where('branch', '==', authResult.user.branch);
+        }
+
+        const snapshot = await query.get();
         const totalCount = snapshot.size;
 
         const docs = snapshot.docs;
@@ -222,22 +269,36 @@ export async function handleApiRequest(request: Request): Promise<Response> {
           await batch.commit();
         }
 
-        // Also clean up idempotency records
-        try {
-          const idempSnap = await adminDb.collection('idempotency_records').get();
-          for (let i = 0; i < idempSnap.docs.length; i += 400) {
-            const chunk = idempSnap.docs.slice(i, i + 400);
-            const batch = adminDb.batch();
-            chunk.forEach((d) => batch.delete(d.ref));
-            await batch.commit();
-          }
-        } catch {}
+        // If super_admin, also clean up idempotency records
+        if (authResult.user?.role !== 'branch_admin') {
+          try {
+            const idempSnap = await adminDb.collection('idempotency_records').get();
+            for (let i = 0; i < idempSnap.docs.length; i += 400) {
+              const chunk = idempSnap.docs.slice(i, i + 400);
+              const batch = adminDb.batch();
+              chunk.forEach((d) => batch.delete(d.ref));
+              await batch.commit();
+            }
+          } catch {}
+        }
 
         return jsonResponse({ success: true, deletedCount: totalCount }, 200);
       }
 
       if (!orderId || typeof orderId !== 'string') {
         return jsonResponse({ success: false, error: 'Missing orderId or deleteAll flag' }, 400);
+      }
+
+      // Check single order branch permission
+      if (authResult.user?.role === 'branch_admin' && authResult.user?.branch && authResult.user.branch !== 'all') {
+        const orderSnap = await adminDb.collection('orders').doc(orderId).get();
+        if (!orderSnap.exists) {
+          return jsonResponse({ success: false, error: 'Order not found' }, 404);
+        }
+        const orderBranch = orderSnap.data()?.['branch'];
+        if (orderBranch && orderBranch !== authResult.user.branch) {
+          return jsonResponse({ success: false, error: 'Forbidden: You cannot delete orders from another branch' }, 403);
+        }
       }
 
       await adminDb.collection('orders').doc(orderId).delete();
@@ -292,6 +353,22 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     try {
       const body = (await request.json().catch(() => ({}))) as Record<string, any>;
       const { action } = body;
+
+      // Multi-Branch Security: branch_admin can ONLY toggle items/extras for their own branch
+      if (authResult.user?.role === 'branch_admin') {
+        const branchScope = authResult.user.branch;
+        if (action === 'toggle_item' || action === 'toggle_extra') {
+          const requestedField = body['field'];
+          if (requestedField === 'global') {
+            return jsonResponse({ success: false, error: 'Forbidden: Branch managers cannot modify global availability. Only assigned branch toggling is allowed.' }, 403);
+          }
+          if (branchScope && requestedField !== branchScope) {
+            return jsonResponse({ success: false, error: 'Forbidden: You cannot modify availability for other branches.' }, 403);
+          }
+        } else {
+          return jsonResponse({ success: false, error: 'Forbidden: Custom extras and bulk menu modifications require Super Admin privileges.' }, 403);
+        }
+      }
 
       const { adminDb, FieldValue } = getFirebaseAdmin();
       const availRef = adminDb.collection('menu_availability').doc('current');
@@ -500,6 +577,12 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
     try {
       const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+
+      // Strict Authorization: Branch Admins cannot alter global website open status
+      if (authResult.user?.role === 'branch_admin' && typeof body['isSiteOpen'] === 'boolean') {
+        return jsonResponse({ success: false, error: 'Forbidden: Branch managers cannot modify global website open status.' }, 403);
+      }
+
       const { adminDb, FieldValue } = getFirebaseAdmin();
       const opRef = adminDb.collection('settings').doc('operational_control');
 
@@ -509,37 +592,51 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const fallbackMatar = DEFAULT_OPERATIONAL_SETTINGS.branches["فرع المطار"]!;
       const fallbackMahatta = DEFAULT_OPERATIONAL_SETTINGS.branches["فرع المحطة"]!;
 
+      // Strict Role Isolation: Branch Admins cannot alter global site status or other branches
+      const isBranchAdmin = authResult.user?.role === 'branch_admin';
+      const userBranch = authResult.user?.branch;
+
+      if (isBranchAdmin && typeof body['isSiteOpen'] === 'boolean' && body['isSiteOpen'] !== existingData.isSiteOpen) {
+        return jsonResponse({ success: false, error: 'Forbidden: Branch managers cannot modify global website open status.' }, 403);
+      }
+
       // Prepare updated payload
       const updatedSettings: OperationalControlSettings = {
-        isSiteOpen: typeof body['isSiteOpen'] === 'boolean' ? body['isSiteOpen'] : existingData.isSiteOpen,
-        globalClosedMessage: typeof body['globalClosedMessage'] === 'string' && body['globalClosedMessage'].trim()
-          ? body['globalClosedMessage'].trim()
-          : existingData.globalClosedMessage,
-        workingHours: {
-          start: body['workingHours']?.start || existingData.workingHours.start,
-          end: body['workingHours']?.end || existingData.workingHours.end,
-          label: body['workingHours']?.label || existingData.workingHours.label,
-        },
+        isSiteOpen: isBranchAdmin ? existingData.isSiteOpen : (typeof body['isSiteOpen'] === 'boolean' ? body['isSiteOpen'] : existingData.isSiteOpen),
+        globalClosedMessage: isBranchAdmin
+          ? existingData.globalClosedMessage
+          : (typeof body['globalClosedMessage'] === 'string' && body['globalClosedMessage'].trim()
+            ? body['globalClosedMessage'].trim()
+            : existingData.globalClosedMessage),
+        workingHours: isBranchAdmin
+          ? existingData.workingHours
+          : {
+              start: body['workingHours']?.start || existingData.workingHours.start,
+              end: body['workingHours']?.end || existingData.workingHours.end,
+              label: body['workingHours']?.label || existingData.workingHours.label,
+            },
         branches: {
           "فرع المطار": {
-            isOpen: typeof body['branches']?.["فرع المطار"]?.isOpen === 'boolean'
+            isOpen: (!isBranchAdmin || userBranch === "فرع المطار") && typeof body['branches']?.["فرع المطار"]?.isOpen === 'boolean'
               ? body['branches']["فرع المطار"].isOpen
               : (existingBranches["فرع المطار"]?.isOpen ?? fallbackMatar.isOpen),
-            autoCloseAfterHours: typeof body['branches']?.["فرع المطار"]?.autoCloseAfterHours === 'boolean'
+            autoCloseAfterHours: (!isBranchAdmin || userBranch === "فرع المطار") && typeof body['branches']?.["فرع المطار"]?.autoCloseAfterHours === 'boolean'
               ? body['branches']["فرع المطار"].autoCloseAfterHours
               : (existingBranches["فرع المطار"]?.autoCloseAfterHours ?? fallbackMatar.autoCloseAfterHours),
-            closedMessage: body['branches']?.["فرع المطار"]?.closedMessage?.trim() ||
-              (existingBranches["فرع المطار"]?.closedMessage || fallbackMatar.closedMessage),
+            closedMessage: (!isBranchAdmin || userBranch === "فرع المطار") && body['branches']?.["فرع المطار"]?.closedMessage?.trim()
+              ? body['branches']["فرع المطار"].closedMessage.trim()
+              : (existingBranches["فرع المطار"]?.closedMessage || fallbackMatar.closedMessage),
           },
           "فرع المحطة": {
-            isOpen: typeof body['branches']?.["فرع المحطة"]?.isOpen === 'boolean'
+            isOpen: (!isBranchAdmin || userBranch === "فرع المحطة") && typeof body['branches']?.["فرع المحطة"]?.isOpen === 'boolean'
               ? body['branches']["فرع المحطة"].isOpen
               : (existingBranches["فرع المحطة"]?.isOpen ?? fallbackMahatta.isOpen),
-            autoCloseAfterHours: typeof body['branches']?.["فرع المحطة"]?.autoCloseAfterHours === 'boolean'
+            autoCloseAfterHours: (!isBranchAdmin || userBranch === "فرع المحطة") && typeof body['branches']?.["فرع المحطة"]?.autoCloseAfterHours === 'boolean'
               ? body['branches']["فرع المحطة"].autoCloseAfterHours
               : (existingBranches["فرع المحطة"]?.autoCloseAfterHours ?? fallbackMahatta.autoCloseAfterHours),
-            closedMessage: body['branches']?.["فرع المحطة"]?.closedMessage?.trim() ||
-              (existingBranches["فرع المحطة"]?.closedMessage || fallbackMahatta.closedMessage),
+            closedMessage: (!isBranchAdmin || userBranch === "فرع المحطة") && body['branches']?.["فرع المحطة"]?.closedMessage?.trim()
+              ? body['branches']["فرع المحطة"].closedMessage.trim()
+              : (existingBranches["فرع المحطة"]?.closedMessage || fallbackMahatta.closedMessage),
           },
         },
         updatedAt: new Date().toISOString(),

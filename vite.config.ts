@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -14,6 +14,14 @@ function devApiMiddleware(): Plugin {
   return {
     name: "ashmawy-dev-api-middleware",
     apply: "serve",
+    config(_, { mode }) {
+      const env = loadEnv(mode, process.cwd(), "");
+      for (const [key, val] of Object.entries(env)) {
+        if (process.env[key] === undefined) {
+          process.env[key] = val;
+        }
+      }
+    },
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const rawUrl = req.url || "";

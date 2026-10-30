@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { useEffect } from "react";
+import { restaurant } from "@/config/restaurant";
 
 export interface ItemAvailability {
   isAvailableGlobal: boolean;
@@ -18,6 +19,38 @@ const DEFAULT_AVAILABILITY: MenuAvailabilityData = {
   items: {},
   extras: {},
 };
+
+export const ALL_BRANCH_LABELS = restaurant.branches.map((b) => b.label);
+
+/**
+ * Check if a specific item/extra is completely locked/disabled across the store.
+ * An item is completely disabled IF:
+ * 1. isAvailableGlobal === false (disabled by super admin globally), OR
+ * 2. Every single known branch has branchAvailability === false.
+ */
+export function isItemCompletelyUnavailable(
+  avail: ItemAvailability | undefined,
+  branches: string[] = ALL_BRANCH_LABELS
+): boolean {
+  if (!avail) return false;
+  if (!avail.isAvailableGlobal) return true;
+  if (branches.length > 0 && branches.every((b) => avail.branchAvailability[b] === false)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Get branches where the item is explicitly marked as unavailable.
+ */
+export function getUnavailableBranches(
+  avail: ItemAvailability | undefined,
+  branches: string[] = ALL_BRANCH_LABELS
+): string[] {
+  if (!avail) return [];
+  if (!avail.isAvailableGlobal) return [...branches];
+  return branches.filter((b) => avail.branchAvailability[b] === false);
+}
 
 /**
  * Check if a specific item/extra is available for a given branch.
@@ -109,4 +142,3 @@ export function useMenuAvailability(): {
     },
   };
 }
-

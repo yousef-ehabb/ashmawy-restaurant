@@ -138,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(newProfile);
       return newProfile;
     } catch (err) {
-      console.warn('[AuthProvider] Error loading user profile:', err);
+      if (err?.code !== 'permission-denied') { console.warn('[AuthProvider] Error loading user profile:', err); }
       // Fallback in-memory profile
       const fallback: CustomerProfile = {
         uid: firebaseUser.uid,

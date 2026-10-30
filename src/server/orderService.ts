@@ -536,6 +536,7 @@ export async function processUpdateOrderStatus(params: {
   orderId: string;
   status: string;
   notes?: string | undefined;
+  allowedBranch?: string | undefined;
 }): Promise<{ success: true; orderId: string; status: OrderStatus }> {
   const { orderId, status, notes } = params;
 
@@ -570,6 +571,17 @@ export async function processUpdateOrderStatus(params: {
 
   const orderData = existing.data() as Record<string, any>;
   const currentStatus = (orderData['status'] || 'pending') as OrderStatus;
+
+  // Strict Multi-Branch Isolation: Ensure branch admin cannot update orders from another branch
+  if (params.allowedBranch && params.allowedBranch !== 'all') {
+    const orderBranch = String(orderData['branch'] || '');
+    if (orderBranch && orderBranch !== params.allowedBranch) {
+      throw new OrderValidationError(
+        'Forbidden: You are not authorized to update orders for ' + orderBranch + '. Assigned branch: ' + params.allowedBranch,
+        403
+      );
+    }
+  }
 
   // Validate status transition
   if (currentStatus !== targetStatus) {
