@@ -139,6 +139,12 @@ service cloud.firestore {
     }
 
     // Business Rules
+    // Menu Availability - Public read for instant live synchronization across storefront & admin
+    match /menu_availability/{docId} {
+      allow read: if true;
+      allow write: if isGlobalAdmin() || isStaffMember();
+    }
+
     match /business_rules/{ruleId} {
       allow read: if true;
       allow write: if isGlobalAdmin();

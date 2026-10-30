@@ -3,6 +3,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { useEffect } from "react";
 import { restaurant } from "@/config/restaurant";
+import { subscribeLiveSync } from "@/lib/liveSync";
 
 export interface ItemAvailability {
   isAvailableGlobal: boolean;
@@ -99,12 +100,14 @@ export function useMenuAvailability(): {
       }
       return DEFAULT_AVAILABILITY;
     },
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 0, // Real-time priority
+    refetchInterval: 3000, // 3-second background polling fallback
+    refetchOnWindowFocus: true, // Instant sync when user switches tabs
     gcTime: 5 * 60 * 1000,
     retry: 2,
   });
 
-  // Real-time Firestore listener for instant updates
+  // 1. Real-time Firestore listener for instant updates (<50ms)
   useEffect(() => {
     if (!isFirebaseConfigured() || !db) return;
 
@@ -124,13 +127,27 @@ export function useMenuAvailability(): {
           }
         },
         (err) => {
-          console.debug("[useMenuAvailability] Firestore listener error:", err.message);
+          console.debug("[useMenuAvailability] Firestore listener fallback to polling:", err.message);
         }
       );
       return () => unsub();
     } catch {
       return;
     }
+  }, [queryClient]);
+
+  // 2. Cross-Tab Live Sync via BroadcastChannel & storage events (0ms latency across tabs)
+  useEffect(() => {
+    const unsub = subscribeLiveSync((msg) => {
+      if (msg.type === "menu_availability_updated") {
+        if (msg.payload) {
+          queryClient.setQueryData(["menuAvailability"], msg.payload);
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["menuAvailability"] });
+        }
+      }
+    });
+    return () => unsub();
   }, [queryClient]);
 
   return {

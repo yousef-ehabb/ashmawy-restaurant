@@ -17,6 +17,7 @@ import {
   type User,
 } from "firebase/auth";
 import { db, auth, isFirebaseConfigured } from "@/lib/firebase";
+import { broadcastLiveSync } from "@/lib/liveSync";
 import { formatEGP, products as menuProducts, extrasList, categories as menuCategories } from "@/data/menu";
 import { restaurant } from "@/config/restaurant";
 import {
@@ -1734,7 +1735,10 @@ function MenuAvailabilityView({ user, adminProfile }: { user: User | null; admin
       } else {
         updated.branchAvailability = { ...updated.branchAvailability, [field]: newValue };
       }
-      return { ...prev, [section]: { ...prev[section], [id]: updated } };
+      const nextState = { ...prev, [section]: { ...prev[section], [id]: updated } };
+      // Instant Cross-Tab Broadcast (0ms to customer tabs)
+      broadcastLiveSync("menu_availability_updated", nextState);
+      return nextState;
     });
 
     try {
@@ -2322,6 +2326,8 @@ function OperationalControlView({
 
       setSettings(data.settings);
       setSaveSuccess(true);
+      // Instant Cross-Tab Broadcast for operational settings
+      broadcastLiveSync("operational_settings_updated", data.settings);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
       console.error("[OperationalControlView] Save failed:", err);
