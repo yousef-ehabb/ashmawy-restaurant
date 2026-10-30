@@ -41,3 +41,6 @@ dist-ssr
 serviceAccountKey.json
 service-account*.json
 *.zip
+
+# Lovable / legacy preview
+.lovable/

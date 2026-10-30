@@ -145,3 +145,114 @@ export async function verifyAdminRequest(request: Request): Promise<AdminAuthRes
     error: 'Forbidden: Authenticated user does not possess administrator privileges',
   };
 }
+
+export interface CustomerAuthResult {
+  authenticated: boolean;
+  statusCode: 200 | 401;
+  error?: string | undefined;
+  user?: {
+    uid: string;
+    email?: string | undefined;
+    displayName?: string | undefined;
+  } | undefined;
+}
+
+/**
+ * Validates whether an incoming Request has a verified customer Firebase ID token.
+ * Never trusts client-supplied headers or body fields.
+ */
+export async function verifyCustomerRequest(request: Request): Promise<CustomerAuthResult> {
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return {
+      authenticated: false,
+      statusCode: 401,
+      error: 'Unauthorized: Missing or malformed Authorization header (expected Bearer <token>)',
+    };
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return {
+      authenticated: false,
+      statusCode: 401,
+      error: 'Unauthorized: Empty bearer token',
+    };
+  }
+
+  try {
+    let decodedToken: { uid: string; email?: string | undefined; name?: string | undefined; [key: string]: any };
+    if (customTokenVerifier) {
+      decodedToken = await customTokenVerifier(token);
+    } else {
+      const { adminAuth } = getFirebaseAdmin();
+      decodedToken = await adminAuth.verifyIdToken(token);
+    }
+
+    if (!decodedToken || typeof decodedToken !== 'object' || !decodedToken.uid) {
+      return {
+        authenticated: false,
+        statusCode: 401,
+        error: 'Unauthorized: Token payload does not contain a valid user identity',
+      };
+    }
+
+    return {
+      authenticated: true,
+      statusCode: 200,
+      user: {
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+        displayName: decodedToken.name,
+      },
+    };
+  } catch (err: any) {
+    return {
+      authenticated: false,
+      statusCode: 401,
+      error: `Unauthorized: Invalid or expired token (${err?.message || 'Verification failed'})`,
+    };
+  }
+}
+
+/**
+ * Extracts and cryptographically verifies an optional customer token from a request.
+ * If no Authorization header is provided, returns null (guest mode).
+ * If an Authorization header is provided, verifies it. If invalid, throws an error or returns null.
+ */
+export async function extractVerifiedCustomer(
+  request: Request
+): Promise<{ uid: string; email?: string | undefined } | null> {
+  const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return null;
+  }
+
+  try {
+    let decodedToken: { uid: string; email?: string | undefined; [key: string]: any };
+    if (customTokenVerifier) {
+      decodedToken = await customTokenVerifier(token);
+    } else {
+      const { adminAuth } = getFirebaseAdmin();
+      decodedToken = await adminAuth.verifyIdToken(token);
+    }
+
+    if (decodedToken && decodedToken.uid) {
+      return {
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+      };
+    }
+  } catch (err) {
+    console.warn('[extractVerifiedCustomer] Token verification failed:', err);
+    throw new Error('Invalid or expired authentication token. Please sign in again.');
+  }
+
+  return null;
+}
+

@@ -14,4 +14,20 @@ describe("App routing", () => {
 
     expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
   });
+
+  it("matches the /account route for the customer account page", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes("/account");
+
+    expect(matches.at(-1)?.routeId).toBe("/account");
+  });
+
+  it("matches the /checkout route for the checkout page", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes("/checkout");
+
+    expect(matches.at(-1)?.routeId).toBe("/checkout");
+  });
 });

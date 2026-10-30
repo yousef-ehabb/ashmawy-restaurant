@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { getFirebaseAdmin } from '../server/firebaseAdmin';
 import { processCreateOrder, OrderValidationError } from '../server/orderService';
+import { DEFAULT_OPERATIONAL_SETTINGS } from '../types/operational';
 
 // Ensure tests communicate with the local emulator
 process.env['FIRESTORE_EMULATOR_HOST'] = '127.0.0.1:8081';
@@ -9,6 +10,23 @@ process.env['FIREBASE_PROJECT_ID'] = 'ashmawy-ordering';
 describe('Authoritative Server-Side Order Creation Engine', () => {
   beforeAll(async () => {
     const { adminDb } = getFirebaseAdmin();
+
+    // 0. Seed Operational Control Settings to ensure branches are open
+    await adminDb.collection('settings').doc('operational_control').set({
+      ...DEFAULT_OPERATIONAL_SETTINGS,
+      branches: {
+        'فرع المطار': {
+          isOpen: true,
+          autoCloseAfterHours: false,
+          closedMessage: '',
+        },
+        'فرع المحطة': {
+          isOpen: true,
+          autoCloseAfterHours: false,
+          closedMessage: '',
+        },
+      },
+    });
 
     // 1. Seed Global Settings
     await adminDb.collection('settings').doc('global').set({
@@ -140,7 +158,7 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
     expect(orderDoc.exists).toBe(true);
     const orderData = orderDoc.data()!;
     expect(orderData['order_number']).toBe(2001);
-    expect(orderData['status']).toBe('new');
+    expect(orderData['status']).toBe('pending');
     expect(orderData['total']).toBe(245);
   });
 
@@ -314,9 +332,9 @@ describe('Authoritative Server-Side Order Creation Engine', () => {
     const { adminDb } = getFirebaseAdmin();
     const orderDocRef = adminDb.collection('orders').doc(res.orderId);
 
-    // Initial status is 'new'
+    // Initial status is 'pending'
     let docSnap = await orderDocRef.get();
-    expect(docSnap.data()?.['status']).toBe('new');
+    expect(docSnap.data()?.['status']).toBe('pending');
 
     // Update status to 'preparing'
     await orderDocRef.update({ status: 'preparing', updated_at: new Date().toISOString() });

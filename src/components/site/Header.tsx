@@ -1,8 +1,9 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Menu, ShoppingBag, X, PackageSearch } from "lucide-react";
+import { Menu, ShoppingBag, X, PackageSearch, User as UserIcon, LogIn, LogOut } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import logo from "@/assets/ashmawy-logo.png.asset.json";
 import { useCart } from "@/lib/cart";
+import { useAuth } from "@/lib/auth-context";
 
 export const navLinks = [
   { href: "/#top", label: "الرئيسية" },
@@ -48,6 +49,17 @@ function HeaderInner({
   isHomepage: boolean;
 }) {
   const [scrolled, setScrolled] = useState(false);
+  const { user, profile, openAuthModal, signOut } = useAuth();
+
+  const handleOrderNowClick = (e: React.MouseEvent) => {
+    if (!user) {
+      e.preventDefault();
+      openAuthModal('choice', () => {
+        const menu = document.getElementById('menu');
+        if (menu) menu.scrollIntoView({ behavior: 'smooth' });
+      });
+    }
+  };
 
   const handleScroll = useCallback(() => {
     // On homepage, transition after scrolling past hero (~100px threshold)
@@ -103,9 +115,10 @@ function HeaderInner({
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
+          {/* Track order */}
           <Link
             to="/track"
-            className={`hidden items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-medium shadow-xs transition sm:inline-flex ${
+            className={`hidden items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm font-medium shadow-xs transition lg:inline-flex ${
               isTransparent
                 ? "border-white/25 text-white hover:border-white/50 hover:bg-white/10"
                 : "border-cream/20 text-cream hover:border-cream/40 hover:bg-cream/10"
@@ -114,16 +127,47 @@ function HeaderInner({
             <PackageSearch className="h-4 w-4" />
             <span>تتبع طلبك</span>
           </Link>
+
+          {/* User Account / Sign In */}
+          {user ? (
+            <Link
+              to="/account"
+              className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-bold transition ${
+                isTransparent
+                  ? "border-white/30 text-white hover:bg-white/15"
+                  : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+              }`}
+              title="صفحة حسابي"
+            >
+              <UserIcon className="h-4 w-4" />
+              <span className="max-w-[100px] truncate sm:max-w-[140px]">
+                {profile?.displayName?.split(' ')[0] || user.displayName?.split(' ')[0] || 'حسابي'}
+              </span>
+            </Link>
+          ) : (
+            <button
+              onClick={() => openAuthModal('signin')}
+              className={`hidden sm:inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm font-medium transition ${
+                isTransparent
+                  ? "border-white/25 text-white hover:border-white/50 hover:bg-white/10"
+                  : "border-cream/20 text-cream hover:border-cream/40 hover:bg-cream/10"
+              }`}
+            >
+              <LogIn className="h-4 w-4" />
+              <span>دخول</span>
+            </button>
+          )}
+
+          {/* Order Now CTA */}
           <a
             href="/#menu"
-            className={`hidden rounded-full px-5 py-2.5 text-sm font-bold shadow-pop transition sm:inline-flex ${
-              isTransparent
-                ? "bg-primary text-primary-foreground hover:bg-primary-deep"
-                : "bg-primary text-primary-foreground hover:bg-primary-deep"
-            } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
+            onClick={handleOrderNowClick}
+            className="hidden rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-pop transition hover:bg-primary-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:inline-flex"
           >
             اطلب الآن
           </a>
+
+          {/* Cart Icon */}
           <button
             onClick={() => setCartOpen(true)}
             className={`relative grid h-11 w-11 place-items-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -140,6 +184,8 @@ function HeaderInner({
               </span>
             )}
           </button>
+
+          {/* Hamburger Menu */}
           <button
             onClick={() => setMobile((v: boolean) => !v)}
             className={`grid h-11 w-11 place-items-center rounded-full border md:hidden ${
@@ -171,18 +217,57 @@ function HeaderInner({
               {l.label}
             </a>
           ))}
+
+          {user ? (
+            <div className="mt-3 flex flex-col gap-2">
+              <Link
+                to="/account"
+                onClick={() => setMobile(false)}
+                className="flex items-center justify-center gap-2 rounded-full border border-primary/40 bg-primary/10 py-2.5 text-center font-bold text-primary"
+              >
+                <UserIcon className="h-4 w-4" />
+                <span>حسابي ({profile?.displayName || user.displayName || 'العميل'})</span>
+              </Link>
+              <button
+                onClick={() => {
+                  setMobile(false);
+                  signOut();
+                }}
+                className="flex items-center justify-center gap-2 rounded-full border border-border bg-ink/50 py-2 text-center text-xs font-bold text-muted-foreground hover:text-foreground"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span>تسجيل الخروج</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setMobile(false);
+                openAuthModal('signin');
+              }}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-cream/20 bg-cream/10 py-2.5 text-center font-bold text-cream"
+            >
+              <LogIn className="h-4 w-4" />
+              <span>تسجيل الدخول / إنشاء حساب</span>
+            </button>
+          )}
+
           <Link
             to="/track"
             onClick={() => setMobile(false)}
-            className="mt-3 flex items-center justify-center gap-2 rounded-full border border-cream/20 bg-ink py-2.5 text-center font-bold text-cream shadow-xs"
+            className="mt-2 flex items-center justify-center gap-2 rounded-full border border-cream/20 bg-ink py-2.5 text-center font-bold text-cream shadow-xs"
           >
             <PackageSearch className="h-4 w-4" />
             <span>تتبع طلبك</span>
           </Link>
+
           <a
             href="/#menu"
-            onClick={() => setMobile(false)}
-            className="mt-2 block rounded-full bg-primary py-3 text-center font-extrabold text-primary-foreground"
+            onClick={(e) => {
+              setMobile(false);
+              handleOrderNowClick(e);
+            }}
+            className="mt-2 block rounded-full bg-primary py-3 text-center font-extrabold text-primary-foreground shadow-pop"
           >
             اطلب الآن
           </a>

@@ -1,4 +1,5 @@
 import type { CartLine } from './cart';
+import type { CustomerOrderSummary, CustomerProfile } from '@/types/customer';
 
 export interface CreateOrderParams {
   customer_name: string;
@@ -10,6 +11,9 @@ export interface CreateOrderParams {
   lines: CartLine[];
   idempotency_key?: string;
   user_id?: string | null;
+  customerUid?: string | null;
+  customerType?: 'registered' | 'guest';
+  idToken?: string | null;
 }
 
 export interface CreateOrderResponse {
@@ -110,14 +114,22 @@ export async function submitOrderToApi(params: CreateOrderParams): Promise<Creat
     notes: params.notes?.trim() || '',
     idempotency_key: idempotencyKey,
     user_id: params.user_id || null,
+    customerUid: params.customerUid || null,
+    customerType: params.customerType || (params.idToken ? 'registered' : 'guest'),
     items,
   };
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (params.idToken) {
+    headers['Authorization'] = `Bearer ${params.idToken}`;
+  }
+
   const response = await fetch('/api/orders/create', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -138,4 +150,71 @@ export async function submitOrderToApi(params: CreateOrderParams): Promise<Creat
     deliveryFee: data.deliveryFee,
     total: data.total,
   };
+}
+
+/**
+ * Fetch authenticated customer's previous orders from server
+ */
+export async function getCustomerOrdersApi(idToken: string): Promise<CustomerOrderSummary[]> {
+  const response = await fetch('/api/customer/orders', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${idToken}`,
+    },
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.error || 'فشل تحميل سجل طلباتك.');
+  }
+
+  return data.orders || [];
+}
+
+/**
+ * Fetch authenticated customer's profile from server
+ */
+export async function getCustomerProfileApi(idToken: string): Promise<CustomerProfile> {
+  const response = await fetch('/api/customer/profile', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${idToken}`,
+    },
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.error || 'فشل تحميل بيانات الحساب.');
+  }
+
+  return data.profile;
+}
+
+/**
+ * Update authenticated customer's profile on server
+ */
+export async function updateCustomerProfileApi(
+  idToken: string,
+  profile: Partial<CustomerProfile>
+): Promise<CustomerProfile> {
+  const response = await fetch('/api/customer/profile', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(profile),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.error || 'فشل تحديث بيانات الحساب.');
+  }
+
+  return data.profile;
 }

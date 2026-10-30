@@ -5,7 +5,7 @@ import {
   trackOrder,
   OrderValidationError,
 } from './orderService';
-import { verifyAdminRequest } from './auth';
+import { verifyAdminRequest, verifyCustomerRequest, extractVerifiedCustomer } from './auth';
 import { getFirebaseAdmin } from './firebaseAdmin';
 import {
   DEFAULT_OPERATIONAL_SETTINGS,
@@ -58,14 +58,25 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     }
 
     try {
+      // Authenticate customer if token provided in Authorization header
+      let authenticatedUid: string | null = null;
+      const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+      if (authHeader && authHeader.trim().startsWith('Bearer ')) {
+        const verified = await extractVerifiedCustomer(request);
+        if (verified?.uid) {
+          authenticatedUid = verified.uid;
+        }
+      }
+
       const body = await request.json().catch(() => ({}));
-      const result = await processCreateOrder(body);
+      const result = await processCreateOrder(body, authenticatedUid);
       return jsonResponse(result, 201);
     } catch (error: any) {
       console.error('[API /api/orders/create] Order creation error:', error);
-      const statusCode = error instanceof OrderValidationError ? error.statusCode : 500;
+      const isAuthError = error?.message?.includes('Invalid or expired authentication token');
+      const statusCode = isAuthError ? 401 : (error instanceof OrderValidationError ? error.statusCode : 500);
       const message =
-        error instanceof OrderValidationError
+        error instanceof OrderValidationError || isAuthError
           ? error.message
           : 'حدث خطأ في معالجة طلبك، يرجى المحاولة مرة أخرى.';
       return jsonResponse({ success: false, error: message }, statusCode);
@@ -555,6 +566,174 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return jsonResponse({ success: true, settings: updatedSettings }, 200);
     } catch (err: any) {
       console.error('[API /api/admin/settings/operational] Error:', err);
+      return jsonResponse({ success: false, error: err.message || 'Internal server error' }, 500);
+    }
+  }
+
+  // 8b. Customer Orders List Endpoint: GET /api/customer/orders
+  if (pathname === '/api/customer/orders') {
+    if (method !== 'GET') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+
+    const authResult = await verifyCustomerRequest(request);
+    if (!authResult.authenticated || !authResult.user?.uid) {
+      return jsonResponse({ success: false, error: authResult.error || 'Unauthorized' }, authResult.statusCode);
+    }
+
+    const customerUid = authResult.user.uid;
+
+    try {
+      const { adminDb } = getFirebaseAdmin();
+      // Query both customerUid and user_id for complete backward compatibility
+      const [snapCustomerUid, snapUserId] = await Promise.all([
+        adminDb.collection('orders').where('customerUid', '==', customerUid).get(),
+        adminDb.collection('orders').where('user_id', '==', customerUid).get(),
+      ]);
+
+      const docMap = new Map<string, any>();
+      snapCustomerUid.docs.forEach((doc) => docMap.set(doc.id, doc));
+      snapUserId.docs.forEach((doc) => docMap.set(doc.id, doc));
+
+      const orders = Array.from(docMap.values()).map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          order_number: Number(data['order_number'] ?? data['orderNumber']) || 1000,
+          status: data['status'] || 'pending',
+          customer_name: String(data['customer_name'] || data['customerName'] || ''),
+          customer_phone: String(data['customer_phone'] || data['customerPhone'] || ''),
+          address: data['address'] ? String(data['address']) : '',
+          type: data['type'] || 'delivery',
+          branch: String(data['branch'] || ''),
+          notes: data['notes'] ? String(data['notes']) : '',
+          items: Array.isArray(data['items']) ? data['items'] : [],
+          subtotal: Number(data['subtotal']) || 0,
+          delivery_fee: Number(data['delivery_fee'] ?? data['deliveryFee']) || 0,
+          total: Number(data['total']) || 0,
+          created_at: String(data['created_at'] || ''),
+          updated_at: data['updated_at'] ? String(data['updated_at']) : undefined,
+        };
+      });
+
+      // Sort descending by order number
+      orders.sort((a, b) => b.order_number - a.order_number);
+
+      return jsonResponse({ success: true, count: orders.length, orders }, 200);
+    } catch (err: any) {
+      console.error('[API /api/customer/orders] Error fetching customer orders:', err);
+      return jsonResponse({ success: false, error: err.message || 'Internal server error' }, 500);
+    }
+  }
+
+  // 8c. Customer Profile Endpoint: GET or POST /api/customer/profile
+  if (pathname === '/api/customer/profile') {
+    if (method !== 'GET' && method !== 'POST') {
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
+    }
+
+    const authResult = await verifyCustomerRequest(request);
+    if (!authResult.authenticated || !authResult.user?.uid) {
+      return jsonResponse({ success: false, error: authResult.error || 'Unauthorized' }, authResult.statusCode);
+    }
+
+    const customerUid = authResult.user.uid;
+    const { adminDb, FieldValue } = getFirebaseAdmin();
+
+    try {
+      if (method === 'GET') {
+        let userDoc = await adminDb.collection('users').doc(customerUid).get();
+        if (!userDoc.exists) {
+          // Check legacy user_profiles
+          const legacyDoc = await adminDb.collection('user_profiles').doc(customerUid).get();
+          if (legacyDoc.exists) {
+            userDoc = legacyDoc;
+          }
+        }
+
+        if (userDoc.exists) {
+          const data = userDoc.data() as Record<string, any>;
+          return jsonResponse({
+            success: true,
+            profile: {
+              uid: customerUid,
+              displayName: data['displayName'] || data['name'] || authResult.user.displayName || '',
+              email: data['email'] || authResult.user.email || '',
+              phone: data['phone'] || '',
+              defaultAddress: data['defaultAddress'] || data['address'] || '',
+              createdAt: data['createdAt'] || data['created_at'] || new Date().toISOString(),
+              updatedAt: data['updatedAt'] || data['updated_at'] || new Date().toISOString(),
+            },
+          }, 200);
+        }
+
+        // Return initial profile if document not yet created
+        const initialProfile = {
+          uid: customerUid,
+          displayName: authResult.user.displayName || '',
+          email: authResult.user.email || '',
+          phone: '',
+          defaultAddress: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        // Seed doc in Firestore
+        await adminDb.collection('users').doc(customerUid).set(initialProfile, { merge: true });
+
+        return jsonResponse({ success: true, profile: initialProfile }, 200);
+      }
+
+      if (method === 'POST') {
+        const body = (await request.json().catch(() => ({}))) as Record<string, any>;
+        const updatePayload: Record<string, any> = {
+          updatedAt: new Date().toISOString(),
+          serverTimestamp: FieldValue.serverTimestamp(),
+        };
+
+        if (typeof body['displayName'] === 'string') {
+          const name = body['displayName'].trim();
+          if (name.length >= 2) updatePayload['displayName'] = name;
+        }
+
+        if (typeof body['phone'] === 'string') {
+          const cleanedPhone = body['phone'].replace(/[\s-]/g, '');
+          updatePayload['phone'] = cleanedPhone;
+        }
+
+        if (typeof body['defaultAddress'] === 'string') {
+          updatePayload['defaultAddress'] = body['defaultAddress'].trim();
+        }
+
+        if (authResult.user.email) {
+          updatePayload['email'] = authResult.user.email;
+        }
+
+        await adminDb.collection('users').doc(customerUid).set(updatePayload, { merge: true });
+
+        // Also sync to legacy user_profiles for consistency
+        try {
+          await adminDb.collection('user_profiles').doc(customerUid).set(updatePayload, { merge: true });
+        } catch {}
+
+        const updatedDoc = await adminDb.collection('users').doc(customerUid).get();
+        const data = updatedDoc.data() as Record<string, any>;
+
+        return jsonResponse({
+          success: true,
+          profile: {
+            uid: customerUid,
+            displayName: data['displayName'] || '',
+            email: data['email'] || authResult.user.email || '',
+            phone: data['phone'] || '',
+            defaultAddress: data['defaultAddress'] || '',
+            createdAt: data['createdAt'] || new Date().toISOString(),
+            updatedAt: data['updatedAt'] || new Date().toISOString(),
+          },
+        }, 200);
+      }
+    } catch (err: any) {
+      console.error('[API /api/customer/profile] Error:', err);
       return jsonResponse({ success: false, error: err.message || 'Internal server error' }, 500);
     }
   }

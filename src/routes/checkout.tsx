@@ -22,6 +22,8 @@ import { QtyControl } from "@/components/site/CartDrawer";
 import { useRestaurantSettings } from "@/hooks/useRestaurantSettings";
 import { useOperationalControl } from "@/hooks/useOperationalControl";
 import { StoreClosedScreen } from "@/components/site/StoreClosedScreen";
+import { useAuth } from "@/lib/auth-context";
+import { User, LogIn, Sparkles } from "lucide-react";
 
 export const Route = createFileRoute("/checkout")({
   head: () => ({
@@ -57,6 +59,7 @@ function Checkout() {
   const { lines, subtotal, setQty, clear } = useCart();
   const { minOrderAmount, deliveryFee: defaultDeliveryFee, branches: settingsBranches } = useRestaurantSettings();
   const { isStoreAccessible, settings: opSettings, checkBranch } = useOperationalControl();
+  const { user, profile, getIdToken, updateProfileData, openAuthModal } = useAuth();
 
   const [form, setForm] = useState<{
     name: string;
@@ -73,6 +76,20 @@ function Checkout() {
     branch: "فرع المطار",
     notes: "",
   });
+
+  const [saveToProfile, setSaveToProfile] = useState(true);
+
+  // Auto pre-fill from authenticated customer profile
+  useEffect(() => {
+    if (user && profile) {
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name || profile.displayName || user.displayName || "",
+        phone: prev.phone || profile.phone || "",
+        address: prev.address || profile.defaultAddress || "",
+      }));
+    }
+  }, [user, profile]);
 
   const [errors, setErrors] = useState<Errors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -147,6 +164,8 @@ function Checkout() {
     setIsSubmitting(true);
 
     try {
+      const idToken = user ? await getIdToken() : null;
+
       const response = await submitOrderToApi({
         customer_name: form.name,
         customer_phone: form.phone,
@@ -155,7 +174,23 @@ function Checkout() {
         branch: form.branch,
         notes: form.notes,
         lines,
+        idToken: idToken || undefined,
+        customerUid: user?.uid || null,
+        customerType: user ? 'registered' : 'guest',
       });
+
+      // If registered customer and saveToProfile enabled, update their profile
+      if (user && saveToProfile) {
+        try {
+          await updateProfileData({
+            displayName: form.name,
+            phone: form.phone,
+            ...(form.orderType === "delivery" && form.address ? { defaultAddress: form.address } : {}),
+          });
+        } catch (profileErr) {
+          console.warn("[Checkout] Profile auto-update note:", profileErr);
+        }
+      }
 
       const confirmedData: ConfirmedOrderState = {
         ...response,
@@ -307,6 +342,15 @@ function Checkout() {
               <PackageSearch className="h-5 w-5" />
               تتبع حالة طلبك مباشرة
             </Link>
+            {user && (
+              <Link
+                to="/account"
+                className="flex items-center justify-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-6 py-3.5 font-bold text-primary transition hover:bg-primary/20"
+              >
+                <User className="h-5 w-5" />
+                سجل طلباتي
+              </Link>
+            )}
             <Link
               to="/"
               onClick={() => {
@@ -386,6 +430,42 @@ function Checkout() {
       <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
         {/* CHECKOUT FORM */}
         <form onSubmit={handleSubmit} noValidate className="space-y-5 rounded-3xl border border-border bg-card p-5 shadow-card sm:p-7">
+          {/* USER STATUS BANNER */}
+          {user ? (
+            <div className="flex items-center justify-between rounded-2xl border border-primary/30 bg-primary/5 p-3.5 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground font-bold text-xs">
+                  ✓
+                </div>
+                <div>
+                  <span className="font-extrabold text-foreground">
+                    مرحباً {profile?.displayName || user.displayName || 'عميلنا المميز'}!
+                  </span>
+                  <span className="text-muted-foreground mr-1.5">(طلب بحسابك المسجل)</span>
+                </div>
+              </div>
+              <Link to="/account" className="font-bold text-primary hover:underline">
+                حسابي
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-amber-500 shrink-0" />
+                <span>
+                  تطلب الآن كزائر. <b>هل لديك حساب لحفظ بياناتك؟</b>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => openAuthModal('signin')}
+                className="shrink-0 rounded-full bg-amber-500 px-3.5 py-1.5 font-bold text-amber-950 hover:bg-amber-400 transition"
+              >
+                تسجيل الدخول / إنشاء حساب
+              </button>
+            </div>
+          )}
+
           {/* FULFILLMENT METHOD */}
           <fieldset>
             <legend className="mb-2 font-bold">طريقة الاستلام</legend>
@@ -490,6 +570,19 @@ function Checkout() {
               />
               {errors.address && <p className="mt-1 text-sm text-destructive">{errors.address}</p>}
             </div>
+          )}
+
+          {/* SAVE TO PROFILE OPTION FOR REGISTERED USERS */}
+          {user && (
+            <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground cursor-pointer select-none py-1">
+              <input
+                type="checkbox"
+                checked={saveToProfile}
+                onChange={(e) => setSaveToProfile(e.target.checked)}
+                className="h-4 w-4 rounded border-input text-primary focus:ring-primary accent-primary"
+              />
+              <span>تحديث بيانات هاتفي وعنواني الافتراضي في حسابي تلقائياً</span>
+            </label>
           )}
 
           {/* NOTES */}

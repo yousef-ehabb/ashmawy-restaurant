@@ -34,6 +34,8 @@ export const orderCreateInputSchema = z
     notes: z.string().max(500, 'الملاحظات لا يمكن أن تتجاوز 500 حرف').optional().default(''),
     idempotency_key: z.string().trim().optional(),
     user_id: z.string().optional().nullable(),
+    customerUid: z.string().optional().nullable(),
+    customerType: z.enum(['registered', 'guest']).optional(),
     items: z.array(orderItemInputSchema).min(1, 'يجب إضافة منتج واحد على الأقل للسلة'),
   })
   .superRefine((data, ctx) => {

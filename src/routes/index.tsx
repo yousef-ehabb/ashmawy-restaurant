@@ -11,6 +11,7 @@ import { useProducts } from "@/hooks/useProducts";
 import { useCategories } from "@/hooks/useCategories";
 import { useRestaurantSettings } from "@/hooks/useRestaurantSettings";
 import { useOperationalControl } from "@/hooks/useOperationalControl";
+import { useAuth } from "@/lib/auth-context";
 import { HeroSlideshow } from "@/components/site/HeroSlideshow";
 import { HeroWaveTransition } from "@/components/site/HeroWaveTransition";
 
@@ -60,8 +61,19 @@ function Index() {
    Hero – full-width photographic slideshow
    ───────────────────────────────────────────────── */
 function Hero() {
+  const { user, openAuthModal } = useAuth();
+
   const scrollToMenu = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
+    if (!user) {
+      openAuthModal('choice', () => {
+        const menu = document.getElementById("menu");
+        if (menu) {
+          menu.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+      return;
+    }
     const menu = document.getElementById("menu");
     if (menu) {
       menu.scrollIntoView({ behavior: "smooth", block: "start" });

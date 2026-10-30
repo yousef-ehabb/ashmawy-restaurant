@@ -78,6 +78,15 @@ service cloud.firestore {
     }
 
     // User Profiles - users can read/write their own profile; Global Admins can inspect
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || isGlobalAdmin()
+      );
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
     match /user_profiles/{userId} {
       allow read: if isAuthenticated() && (
         request.auth.uid == userId || isGlobalAdmin()
@@ -145,7 +154,7 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow read, list: if isGlobalAdmin() ||
         (isStaffMember() && canAccessBranch(resource.data.branch)) ||
-        (isAuthenticated() && resource.data.user_id == request.auth.uid);
+        (isAuthenticated() && (resource.data.user_id == request.auth.uid || resource.data.customerUid == request.auth.uid));
 
       // Direct client creation is blocked: enforced via server-side Admin SDK only
       allow create: if false;
@@ -158,10 +167,10 @@ service cloud.firestore {
         request.resource.data.customer_phone == resource.data.customer_phone &&
         request.resource.data.branch == resource.data.branch)
         ||
-        ((resource.data.status == 'new' || resource.data.status == 'جديد') &&
+        ((resource.data.status == 'new' || resource.data.status == 'جديد' || resource.data.status == 'pending') &&
          (request.resource.data.status == 'cancelled' || request.resource.data.status == 'ملغي') &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updated_at', 'server_updated_at']) &&
-         (isAuthenticated() && resource.data.user_id == request.auth.uid))
+         (isAuthenticated() && (resource.data.user_id == request.auth.uid || resource.data.customerUid == request.auth.uid)))
         ||
         isGlobalAdmin()
       );

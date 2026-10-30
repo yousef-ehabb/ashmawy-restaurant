@@ -74,7 +74,10 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
-export async function processCreateOrder(rawInput: unknown): Promise<{
+export async function processCreateOrder(
+  rawInput: unknown,
+  authenticatedUid?: string | null
+): Promise<{
   success: true;
   orderId: string;
   orderNumber: number;
@@ -138,7 +141,11 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
               409
             );
           }
-          if (input.user_id && data['user_id'] && data['user_id'] !== input.user_id) {
+          const expectedUid =
+            authenticatedUid !== undefined
+              ? authenticatedUid
+              : input.customerUid || input.user_id || null;
+          if (expectedUid && data['user_id'] && data['user_id'] !== expectedUid) {
             throw new OrderValidationError(
               'Idempotency key has already been used by another customer or order submission.',
               409
@@ -180,7 +187,7 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
     if (opSettings) {
       if (opSettings.isSiteOpen === false) {
         throw new OrderValidationError(
-          opSettings.globalClosedMessage || 'المطعم مغلق حالياً، نعتذر عن استقبال الطلبات.',
+          opSettings.globalClosedMessage || 'Ø§Ù„Ù…Ø·Ø¹Ù… Ù…ØºÙ„Ù‚ Ø­Ø§Ù„ÙŠØ§Ù‹ØŒ Ù†Ø¹ØªØ°Ø± Ø¹Ù† Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª.',
           422
         );
       }
@@ -189,7 +196,7 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       if (branchConfig) {
         if (branchConfig.isOpen === false) {
           throw new OrderValidationError(
-            branchConfig.closedMessage || `نعتذر، ${input.branch} مغلق حالياً.`,
+            branchConfig.closedMessage || `Ù†Ø¹ØªØ°Ø±ØŒ ${input.branch} Ù…ØºÙ„Ù‚ Ø­Ø§Ù„ÙŠØ§Ù‹.`,
             422
           );
         }
@@ -197,7 +204,7 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
         // Auto-close after hours check (2:00 AM)
         if (branchConfig.autoCloseAfterHours && !isWithinCairoShift()) {
           throw new OrderValidationError(
-            branchConfig.closedMessage || `نعتذر، ${input.branch} مغلق تلقائياً بعد مواعيد العمل الرسمية (2:00 ص).`,
+            branchConfig.closedMessage || `Ù†Ø¹ØªØ°Ø±ØŒ ${input.branch} Ù…ØºÙ„Ù‚ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø¹Ø¯ Ù…ÙˆØ§Ø¹ÙŠØ¯ Ø§Ù„Ø¹Ù…Ù„ Ø§Ù„Ø±Ø³Ù…ÙŠØ© (2:00 Øµ).`,
             422
           );
         }
@@ -206,14 +213,14 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       // Fallback to legacy global settings if operational_control not yet initialized
       if (legacySettings['is_website_open'] === false) {
         throw new OrderValidationError(
-          legacySettings['closed_message'] || 'المطعم مغلق حالياً، نعتذر عن استقبال الطلبات.',
+          legacySettings['closed_message'] || 'Ø§Ù„Ù…Ø·Ø¹Ù… Ù…ØºÙ„Ù‚ Ø­Ø§Ù„ÙŠØ§Ù‹ØŒ Ù†Ø¹ØªØ°Ø± Ø¹Ù† Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª.',
           422
         );
       }
       const branches = legacySettings['branches'] as Record<string, any> | undefined;
       const branchConfig = branches?.[input.branch];
       if (branchConfig && branchConfig['is_open'] === false) {
-        throw new OrderValidationError(`نعتذر، ${input.branch} مغلق حالياً.`, 422);
+        throw new OrderValidationError(`Ù†Ø¹ØªØ°Ø±ØŒ ${input.branch} Ù…ØºÙ„Ù‚ Ø­Ø§Ù„ÙŠØ§Ù‹.`, 422);
       }
     }
 
@@ -265,14 +272,14 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
     for (const item of input.items) {
       const product = productMap.get(item.product_id);
       if (!product) {
-        throw new OrderValidationError(`المنتج ذو المعرف (${item.product_id}) غير موجود بالمنيو.`, 404);
+        throw new OrderValidationError(`Ø§Ù„Ù…Ù†ØªØ¬ Ø°Ùˆ Ø§Ù„Ù…Ø¹Ø±Ù (${item.product_id}) ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯ Ø¨Ø§Ù„Ù…Ù†ÙŠÙˆ.`, 404);
       }
       if (product['is_active'] === false || product['is_available'] === false) {
-        throw new OrderValidationError(`المنتج "${product['name_ar']}" غير متاح حالياً.`, 422);
+        throw new OrderValidationError(`Ø§Ù„Ù…Ù†ØªØ¬ "${product['name_ar']}" ØºÙŠØ± Ù…ØªØ§Ø­ Ø­Ø§Ù„ÙŠØ§Ù‹.`, 422);
       }
       const branchAvail = product['branch_availability'] as Record<string, boolean> | undefined;
       if (branchAvail?.[input.branch] === false) {
-        throw new OrderValidationError(`المنتج "${product['name_ar']}" غير متاح في ${input.branch}.`, 422);
+        throw new OrderValidationError(`Ø§Ù„Ù…Ù†ØªØ¬ "${product['name_ar']}" ØºÙŠØ± Ù…ØªØ§Ø­ ÙÙŠ ${input.branch}.`, 422);
       }
 
       // Check admin menu_availability toggles (real-time admin controls)
@@ -280,14 +287,14 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       if (itemAvailEntry) {
         if (itemAvailEntry['isAvailableGlobal'] === false) {
           throw new OrderValidationError(
-            `المنتج "${product['name_ar']}" غير متاح حالياً (تم إيقافه من لوحة التحكم).`,
+            `Ø§Ù„Ù…Ù†ØªØ¬ "${product['name_ar']}" ØºÙŠØ± Ù…ØªØ§Ø­ Ø­Ø§Ù„ÙŠØ§Ù‹ (ØªÙ… Ø¥ÙŠÙ‚Ø§ÙÙ‡ Ù…Ù† Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…).`,
             422
           );
         }
         const itemBranchAvail = itemAvailEntry['branchAvailability'] as Record<string, boolean> | undefined;
         if (itemBranchAvail?.[input.branch] === false) {
           throw new OrderValidationError(
-            `المنتج "${product['name_ar']}" غير متاح في ${input.branch} حالياً.`,
+            `Ø§Ù„Ù…Ù†ØªØ¬ "${product['name_ar']}" ØºÙŠØ± Ù…ØªØ§Ø­ ÙÙŠ ${input.branch} Ø­Ø§Ù„ÙŠØ§Ù‹.`,
             422
           );
         }
@@ -300,11 +307,11 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
       if (item.size_id) {
         const sizeDoc = optionMap.get(item.size_id);
         if (!sizeDoc || sizeDoc['product_id'] !== item.product_id || sizeDoc['is_active'] === false) {
-          throw new OrderValidationError(`الحجم المختار للمنتج "${product['name_ar']}" غير متاح.`, 422);
+          throw new OrderValidationError(`Ø§Ù„Ø­Ø¬Ù… Ø§Ù„Ù…Ø®ØªØ§Ø± Ù„Ù„Ù…Ù†ØªØ¬ "${product['name_ar']}" ØºÙŠØ± Ù…ØªØ§Ø­.`, 422);
         }
         const sizeBranchAvail = sizeDoc['branch_availability'] as Record<string, boolean> | undefined;
         if (sizeBranchAvail?.[input.branch] === false) {
-          throw new OrderValidationError(`الحجم المختار للمنتج "${product['name_ar']}" غير متاح في ${input.branch}.`, 422);
+          throw new OrderValidationError(`Ø§Ù„Ø­Ø¬Ù… Ø§Ù„Ù…Ø®ØªØ§Ø± Ù„Ù„Ù…Ù†ØªØ¬ "${product['name_ar']}" ØºÙŠØ± Ù…ØªØ§Ø­ ÙÙŠ ${input.branch}.`, 422);
         }
         baseUnitPrice = (Number(product['price']) || 0) + (Number(sizeDoc['price_delta']) || 0);
         verifiedSize = {
@@ -322,11 +329,11 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
         for (const extraId of item.selected_options) {
           const extraDoc = optionMap.get(extraId);
           if (!extraDoc || extraDoc['product_id'] !== item.product_id || extraDoc['is_active'] === false) {
-            throw new OrderValidationError(`الإضافة المختارة (${extraId}) غير متوفرة مع هذا الصنف.`, 422);
+            throw new OrderValidationError(`Ø§Ù„Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© (${extraId}) ØºÙŠØ± Ù…ØªÙˆÙØ±Ø© Ù…Ø¹ Ù‡Ø°Ø§ Ø§Ù„ØµÙ†Ù.`, 422);
           }
           const extraBranchAvail = extraDoc['branch_availability'] as Record<string, boolean> | undefined;
           if (extraBranchAvail?.[input.branch] === false) {
-            throw new OrderValidationError(`الإضافة "${extraDoc['name_ar']}" غير متوفرة في ${input.branch}.`, 422);
+            throw new OrderValidationError(`Ø§Ù„Ø¥Ø¶Ø§ÙØ© "${extraDoc['name_ar']}" ØºÙŠØ± Ù…ØªÙˆÙØ±Ø© ÙÙŠ ${input.branch}.`, 422);
           }
 
           // Check admin menu_availability toggles for extras
@@ -334,14 +341,14 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
           if (extraAvailEntry) {
             if (extraAvailEntry['isAvailableGlobal'] === false) {
               throw new OrderValidationError(
-                `الإضافة "${extraDoc['name_ar']}" غير متوفرة حالياً (تم إيقافها من لوحة التحكم).`,
+                `Ø§Ù„Ø¥Ø¶Ø§ÙØ© "${extraDoc['name_ar']}" ØºÙŠØ± Ù…ØªÙˆÙØ±Ø© Ø­Ø§Ù„ÙŠØ§Ù‹ (ØªÙ… Ø¥ÙŠÙ‚Ø§ÙÙ‡Ø§ Ù…Ù† Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…).`,
                 422
               );
             }
             const extraBranchToggle = extraAvailEntry['branchAvailability'] as Record<string, boolean> | undefined;
             if (extraBranchToggle?.[input.branch] === false) {
               throw new OrderValidationError(
-                `الإضافة "${extraDoc['name_ar']}" غير متوفرة في ${input.branch} حالياً.`,
+                `Ø§Ù„Ø¥Ø¶Ø§ÙØ© "${extraDoc['name_ar']}" ØºÙŠØ± Ù…ØªÙˆÙØ±Ø© ÙÙŠ ${input.branch} Ø­Ø§Ù„ÙŠØ§Ù‹.`,
                 422
               );
             }
@@ -378,7 +385,7 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
     const minOrder = Number(settings?.['min_order_amount'] ?? 50);
     if (calculatedSubtotal < minOrder) {
       throw new OrderValidationError(
-        `الحد الأدنى للطلب هو ${minOrder} ج.م (الإجمالي الحالي: ${calculatedSubtotal} ج.م)`,
+        `Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ø¯Ù†Ù‰ Ù„Ù„Ø·Ù„Ø¨ Ù‡Ùˆ ${minOrder} Ø¬.Ù… (Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø­Ø§Ù„ÙŠ: ${calculatedSubtotal} Ø¬.Ù…)`,
         422
       );
     }
@@ -415,6 +422,18 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
         { merge: true }
       );
 
+      // Determine authoritative customer identification
+      // Priority: verified server token (authenticatedUid)
+      // If authenticatedUid === null: explicit guest checkout
+      // If authenticatedUid is string: registered customer
+      // If authenticatedUid is undefined (e.g. testing / internal call): fallback to input.customerUid || input.user_id
+      const effectiveUid =
+        authenticatedUid !== undefined
+          ? authenticatedUid
+          : input.customerUid || input.user_id || null;
+      const isRegistered = Boolean(effectiveUid);
+      const customerType = isRegistered ? 'registered' : 'guest';
+
       // Create authoritative order document with initial 'pending' status
       const orderPayload = {
         id: newOrderRef.id,
@@ -431,7 +450,9 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
         delivery_fee: deliveryFee,
         total: calculatedTotal,
         idempotency_key: rawKey || null,
-        user_id: input.user_id || null,
+        user_id: effectiveUid,
+        customerUid: effectiveUid,
+        customerType,
         created_at: new Date().toISOString(),
         server_timestamp: FieldValue.serverTimestamp(),
       };
@@ -445,7 +466,9 @@ export async function processCreateOrder(rawInput: unknown): Promise<{
           order_id: newOrderRef.id,
           order_number: nextNumber,
           customer_phone: input.customer_phone,
-          user_id: input.user_id || null,
+          user_id: effectiveUid,
+          customerUid: effectiveUid,
+          customerType,
           subtotal: calculatedSubtotal,
           delivery_fee: deliveryFee,
           total: calculatedTotal,
@@ -622,7 +645,7 @@ export async function trackOrder(
 
   if (isNaN(numericVal) || numericVal < 1) {
     throw new OrderValidationError(
-      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø·Ù„Ø¨ Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§ØªØŒ ÙŠØ±Ø¬Ù‰ Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨ ÙˆØ±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ',
       404
     );
   }
@@ -630,7 +653,7 @@ export async function trackOrder(
   const normalizedInputPhone = cleanPhoneDigits(phone);
   if (normalizedInputPhone.length < 9) {
     throw new OrderValidationError(
-      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø·Ù„Ø¨ Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§ØªØŒ ÙŠØ±Ø¬Ù‰ Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨ ÙˆØ±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ',
       404
     );
   }
@@ -658,7 +681,7 @@ export async function trackOrder(
 
   if (!foundDoc) {
     throw new OrderValidationError(
-      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø·Ù„Ø¨ Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§ØªØŒ ÙŠØ±Ø¬Ù‰ Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨ ÙˆØ±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ',
       404
     );
   }
@@ -673,7 +696,7 @@ export async function trackOrder(
 
   if (!normalizedStoredPhone || normalizedStoredPhone !== normalizedInputPhone) {
     throw new OrderValidationError(
-      'لم يتم العثور على طلب بهذه البيانات، يرجى التأكد من رقم الطلب ورقم الهاتف',
+      'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø·Ù„Ø¨ Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§ØªØŒ ÙŠØ±Ø¬Ù‰ Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨ ÙˆØ±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ',
       404
     );
   }

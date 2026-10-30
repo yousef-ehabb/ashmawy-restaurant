@@ -12,8 +12,9 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { CartProvider } from "@/lib/cart";
+import { AuthProvider } from "@/lib/auth-context";
+import { AuthModal } from "@/components/auth/AuthModal";
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { CartDrawer } from "@/components/site/CartDrawer";
@@ -38,9 +39,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
       <div className="max-w-md text-center">
@@ -116,15 +114,18 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <CartProvider>
-        {!isAdmin && <Header />}
-        <main className={isAdmin ? "" : `overflow-x-clip${!isHomepage ? " pt-16" : ""}`}>
-          <Outlet />
-        </main>
-        {!isAdmin && <Footer />}
-        {!isAdmin && <CartDrawer />}
-        <Toaster position="top-center" />
-      </CartProvider>
+      <AuthProvider>
+        <CartProvider>
+          {!isAdmin && <Header />}
+          <main className={isAdmin ? "" : `overflow-x-clip${!isHomepage ? " pt-16" : ""}`}>
+            <Outlet />
+          </main>
+          {!isAdmin && <Footer />}
+          {!isAdmin && <CartDrawer />}
+          <AuthModal />
+          <Toaster position="top-center" />
+        </CartProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
